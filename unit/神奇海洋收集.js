@@ -19,11 +19,7 @@ let AiUtil = require('../lib/AIRequestUtil.js')
 let logFloaty = singletonRequire('LogFloaty')
 let warningFloaty = singletonRequire('WarningFloaty')
 let NotificationHelper = singletonRequire('Notification')
-let NotificationHelper = singletonRequire('Notification')
 let ocrUtil = require('../lib/LocalOcrUtil.js')
-let formatDate = require('../lib/DateUtil.js')
-// 神奇海洋专用通知id
-const NOTIFICATION_ID = config.notificationId * 10 + 2
 let formatDate = require('../lib/DateUtil.js')
 // 神奇海洋专用通知id
 const NOTIFICATION_ID = config.notificationId * 10 + 2
