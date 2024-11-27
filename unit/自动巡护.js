@@ -58,7 +58,7 @@ function Patrol () {
     FloatyInstance.setFloatyInfo({ x: config.device_width / 2, y: config.device_height / 2 }, "查找是否有'打开'对话框")
     let confirm = widgetUtils.widgetGetOne(/^打开$/, 1000)
     if (confirm) {
-      automator.clickCenter(confirm)
+      automator.clickRandom(confirm)
     }
     if (openAlipayMultiLogin(reopen)) {
       return
@@ -79,7 +79,10 @@ function Patrol () {
       debugInfo(['已开启多设备自动登录检测，检查是否有 进入支付宝 按钮'])
       let entryBtn = widgetUtils.widgetGetOne(/^进入支付宝$/, 1000)
       if (entryBtn) {
-        automator.clickCenter(entryBtn)
+        FloatyInstance.setFloatyText('其他设备正在登录，等待5分钟后进入')
+        commonFunctions.waitForAction(300, '等待进入支付宝')
+        unlocker && unlocker.exec()
+        automator.clickRandom(entryBtn)
         sleep(1000)
         startApp()
         return true
@@ -155,7 +158,7 @@ function prepareWalker () {
       if (closeDialog) {
         WarningFloaty.addRectangle(closeDialog.content, boundsToRegion(closeDialog.target.bounds()))
         logFloaty.pushLog('找到' + closeDialog.content + '按钮')
-        automator.clickCenter(closeDialog.target)
+        automator.clickRandom(closeDialog.target)
         sleep(1000)
         if (closeDialog.content.indexOf('观看视频') > -1) {
           this.currentWalker = new VideoWalker()
@@ -232,7 +235,7 @@ function prepareWalker () {
     context.currentState = this.tmpState || 'init'
     let start = widgetUtils.widgetGetOne('开始巡护.*', 1000)
     if (start) {
-      automator.clickCenter(start)
+      automator.clickRandom(start)
       sleep(1000)
     }
   }
@@ -249,14 +252,13 @@ function prepareWalker () {
     let seekTrack = widgetUtils.widgetGetOne('追寻踪迹', 1000)
     if (seekTrack) {
       WarningFloaty.addRectangle('追寻踪迹', boundsToRegion(seekTrack.bounds()))
-      // automator.clickCenter(seekTrack)
-      seekTrack.click()
+      automator.clickRandom(seekTrack)
       sleep(1000)
       let keepForward = widgetUtils.widgetGetOne('继续前进', 1000)
       if (keepForward) {
         WarningFloaty.addRectangle('继续前进', boundsToRegion(keepForward.bounds()))
         logFloaty.pushLog('找到了继续前进')
-        automator.clickCenter(keepForward)
+        automator.clickRandom(keepForward)
         sleep(1000)
       }
     }
@@ -272,11 +274,11 @@ function prepareWalker () {
       let invite = widgetUtils.widgetGetOne('邀请TA', 1000)
       if (invite) {
         debugInfo('点击邀请TA')
-        automator.clickCenter(invite)
+        automator.clickRandom(invite)
         sleep(1000)
         let continueWalk = widgetUtils.widgetGetOne('继续', 1000)
         if (continueWalk) {
-          automator.clickCenter(continueWalk)
+          automator.clickRandom(continueWalk)
           sleep(1000)
         }
       }
@@ -285,7 +287,7 @@ function prepareWalker () {
       if (closeInvite) {
         WarningFloaty.addRectangle('关闭邀请', boundsToRegion(closeInvite.bounds()))
         logFloaty.pushLog('关闭邀请')
-        automator.clickCenter(closeInvite)
+        automator.clickRandom(closeInvite)
         sleep(1000)
       }
     }
@@ -301,7 +303,7 @@ function prepareWalker () {
     let exchange = widgetUtils.widgetGetOne('兑换巡护机会', 1000)
     if (exchange) {
       WarningFloaty.addRectangle('兑换巡护机会', exchange.bounds())
-      automator.clickCenter(exchange)
+      automator.clickRandom(exchange)
       sleep(1000)
       let exchangeInstantly = widgetUtils.widgetGetOne('立即兑换', 1000)
       if (exchangeInstantly) {
@@ -309,7 +311,7 @@ function prepareWalker () {
         WarningFloaty.clearAll()
         WarningFloaty.addRectangle('立即兑换', exchangeInstantly.bounds())
         logFloaty.pushLog('点击立即兑换')
-        automator.clickCenter(exchangeInstantly)
+        automator.clickRandom(exchangeInstantly)
         sleep(1000)
       } else {
         let ended = widgetUtils.widgetGetOne('.*(兑换次数已达上限|步数不足).*', 1000)
@@ -338,21 +340,21 @@ function prepareWalker () {
     let watchVideo = widgetUtils.widgetGetOne('观看视频', 1000)
     if (watchVideo) {
       WarningFloaty.addRectangle('观看视频', boundsToRegion(watchVideo.bounds()))
-      automator.clickCenter(watchVideo)
-      infoLog('观看视频，等待15秒', true)
-      logFloaty.pushLog('观看视频，等待15秒')
-      let count = 15
-      while (count-- > 0) {
-        logFloaty.replaceLastLog('观看视频，等待' + count + '秒')
-        sleep(1000)
-      }
+      automator.clickRandom(watchVideo)
+    }
+    infoLog('观看视频，等待15秒', true)
+    logFloaty.pushLog('观看视频，等待15秒')
+    let count = 15
+    while (count-- > 0) {
+      logFloaty.replaceLastLog('观看视频，等待' + count + '秒')
       sleep(1000)
-      WarningFloaty.clearAll()
+    }
+    sleep(1000)
+    WarningFloaty.clearAll()
+    automator.back()
+    let tryTime = 3
+    while (!widgetUtils.widgetWaiting('.*保护地.*', null, 2000) && --tryTime > 0) {
       automator.back()
-      let tryTime = 3
-      while (!widgetUtils.widgetWaiting('.*保护地.*', null, 2000) && --tryTime > 0) {
-        automator.back()
-      }
     }
   }
 
@@ -366,7 +368,7 @@ function prepareWalker () {
     let target = selector().className('android.widget.Button').filter(node => node.bounds().left < config.device_width * 0.3 && node.bounds().right > 0.8 * config.device_width).findOne(config.timeout_findOne)
     if (target) {
       WarningFloaty.addRectangle(target.desc() || target.text(), target.bounds())
-      automator.clickCenter(target)
+      automator.clickRandom(target)
     } else {
       logFloaty.pushLog('查找答案控件失败')
     }

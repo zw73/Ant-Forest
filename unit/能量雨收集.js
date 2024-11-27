@@ -264,7 +264,7 @@ function checkAndSendChance () {
   let showMoreFriend = widgetUtils.widgetGetById('J_moreGrant', 1000)
   if (showMoreFriend && (targetSendName || config.send_chance_to_friend)) {
     threadPool.execute(function () {
-      automator.clickCenter(showMoreFriend)
+      automator.clickRandom(showMoreFriend)
       infoLog(['点击了更多好友'])
       setDisplayText('点击了更多好友，校验是否存在目标好友', showMoreFriend.bounds().centerX(), showMoreFriend.bounds().centerY())
       sleep(2000)
@@ -293,7 +293,7 @@ function checkAndSendChance () {
             targetEndTime = newEnd > targetEndTime ? newEnd : targetEndTime
             sleep(1000)
             // 点击空白区域 触发关闭蒙层
-            automator.click(violentClickPoints[0][0], violentClickPoints[0][1])
+            automator.clickPointRandom(violentClickPoints[0][0], violentClickPoints[0][1])
             sleep(2000)
             clearDisplayText()
             checkAndStartCollect()
@@ -338,7 +338,7 @@ function checkAndStartCollect () {
           clickButtonWindow.setPosition(-cvt(150), config.device_height * 0.65)
         })
         sleep(250)
-        automator.clickCenter(startBtn)
+        automator.clickRandom(startBtn)
         startTimestamp = new Date().getTime()
         clickRunning = true
         ballsComplete.signal()
@@ -536,7 +536,7 @@ function openRainPage () {
   })
   let confirm = widgetUtils.widgetGetOne(/^打开$/, 3000)
   if (confirm) {
-    automator.clickCenter(confirm)
+    automator.clickRandom(confirm)
   }
   widgetUtils.widgetWaiting('.*返回蚂蚁森林.*')
   if (executeByTimeTask || executeByAccountChanger) {

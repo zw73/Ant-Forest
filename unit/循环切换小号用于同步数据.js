@@ -106,7 +106,7 @@ function openWalkingData () {
   floatyInstance.setFloatyInfo({ x: config.device_width / 2, y: config.device_height / 2 }, "查找是否有'打开'对话框")
   let confirm = widgetUtils.widgetGetOne(/^打开$/, 1000)
   if (confirm) {
-    automator.clickCenter(confirm)
+    automator.clickRandom(confirm)
   }
   sleep(1000)
 }
@@ -172,7 +172,7 @@ function checkWalkingData (recheck) {
     } else {
       let position = convertPosition(donateBtn)
       floatyInstance.setFloatyInfo(position, '点击捐步')
-      automator.click(position.x, position.y)
+      automator.clickPointRandom(position.x, position.y)
       sleep(1000)
     }
   } else {

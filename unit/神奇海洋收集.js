@@ -10,12 +10,20 @@ let automator = singletonRequire('Automator')
 let YoloTrainHelper = singletonRequire('YoloTrainHelper')
 let YoloDetectionUtil = singletonRequire('YoloDetectionUtil')
 let runningQueueDispatcher = singletonRequire('RunningQueueDispatcher')
+logInfo('======加入任务队列，并关闭重复运行的脚本=======')
+runningQueueDispatcher.addRunningTask()
+
+let alipayUnlocker = singletonRequire('AlipayUnlocker')
 let TouchController = require('../lib/TouchController.js')
 let AiUtil = require('../lib/AIRequestUtil.js')
 let logFloaty = singletonRequire('LogFloaty')
 let warningFloaty = singletonRequire('WarningFloaty')
 let NotificationHelper = singletonRequire('Notification')
+let NotificationHelper = singletonRequire('Notification')
 let ocrUtil = require('../lib/LocalOcrUtil.js')
+let formatDate = require('../lib/DateUtil.js')
+// 神奇海洋专用通知id
+const NOTIFICATION_ID = config.notificationId * 10 + 2
 let formatDate = require('../lib/DateUtil.js')
 // 神奇海洋专用通知id
 const NOTIFICATION_ID = config.notificationId * 10 + 2
@@ -27,8 +35,6 @@ let SCALE_RATE = config.scaleRate
 let cvt = (v) => parseInt(v * SCALE_RATE)
 config.not_lingering_float_window = true
 config.sea_ball_region = config.sea_ball_region || [cvt(860), cvt(1350), cvt(140), cvt(160)]
-logInfo('======加入任务队列，并关闭重复运行的脚本=======')
-runningQueueDispatcher.addRunningTask()
 
 // 注册自动移除运行中任务
 commonFunctions.registerOnEngineRemoved(function () {
@@ -91,14 +97,15 @@ unlocker.exec()
 commonFunctions.listenDelayStart()
 commonFunctions.requestScreenCaptureOrRestart()
 
-if (executeByTimeTask || executeArguments.executeByDispatcher) {
-  if (!(executeArguments.find_friend_trash || executeArguments.collect_reward)) {
-    commonFunctions.showCommonDialogAndWait('神奇海洋收垃圾')
+function execMiracleOcean() {
+  if (!startApp()) {
+    warnInfo(['打开项目失败，5分钟后重新尝试'])
+    commonFunctions.setUpAutoStart(5)
+    return false
   }
-  openMiracleOcean()
-  if (!executeArguments.find_friend_trash) {
+  // if (!executeArguments.find_friend_trash) {
     checkNext()
-  }
+  // }
   findTrashs()
   // 查找好友垃圾
   if (executeArguments.find_friend_trash) {
@@ -110,6 +117,13 @@ if (executeByTimeTask || executeArguments.executeByDispatcher) {
   }
   commonFunctions.minimize()
   exit()
+}
+
+if (executeByTimeTask || executeArguments.executeByDispatcher) {
+  if (!(executeArguments.find_friend_trash || executeArguments.collect_reward)) {
+    commonFunctions.showCommonDialogAndWait('神奇海洋收垃圾')
+  }
+  execMiracleOcean()
 } else {
   importClass(android.graphics.drawable.GradientDrawable)
   importClass(android.graphics.drawable.RippleDrawable)
@@ -158,6 +172,7 @@ if (executeByTimeTask || executeArguments.executeByDispatcher) {
       onClick: function () {
         checkNext()
         findTrashs(null)
+        threads.start(function () { sleep(500); exit() })
         threads.start(function () { sleep(500); exit() })
       }
     }, {
@@ -317,39 +332,104 @@ if (executeByTimeTask || executeArguments.executeByDispatcher) {
     })
   }).createListener())
 
-  openMiracleOcean()
+  startApp()
 
 }
 
+let _floaty_failed_time = 0
+function alipayInFloatyWindow () {
+  if (_floaty_failed_time >= 3) {
+    return false
+  }
+  sleep(1000)
+  let navBar = widgetUtils.widgetGetById('.*navigationBarBackground', 1000)
+  if (navBar) {
+    let barWidth = navBar.bounds().width()
+    debugInfo(['当前导航条宽度：{} id:{}', barWidth, navBar.id()])
+    if (barWidth < config.device_width) {
+      _floaty_failed_time++
+      return true
+    }
+  } else {
+    debugInfo(['未找到导航条，无法验证'])
+  }
+  return false
+}
 
-function openMiracleOcean () {
+function openAlipayMultiLogin (reopen) {
+  if (config.multi_device_login && !reopen) {
+    debugInfo(['已开启多设备自动登录检测，检查是否有 进入支付宝 按钮'])
+    let entryBtn = widgetUtils.widgetGetOne(/^进入支付宝$/, 1000)
+    if (entryBtn) {
+      floatyInstance.setFloatyText('其他设备正在登录，等待5分钟后进入')
+      commonFunctions.waitForAction(300, '等待进入支付宝')
+      unlocker && unlocker.exec()
+      automator.clickRandom(entryBtn)
+      sleep(1000)
+      return true
+    } else {
+      debugInfo(['未找到 进入支付宝 按钮'])
+    }
+  }
+}
+
+function startApp(reopen) {
+  let screenOrientation = context.getResources().getConfiguration().orientation
+  debugInfo(['当前屏幕朝向：{}', screenOrientation])
+  if (screenOrientation == 0) {
+    warnInfo(['当前屏幕为横向，为避免出现问题，回到桌面再执行'])
+    home()
+  }
+  
   logInfo('准备打开神奇海洋')
+  commonFunctions.backHomeIfInVideoPackage()
   commonFunctions.backHomeIfInVideoPackage()
   app.startActivity({
     action: 'VIEW',
     data: 'alipays://platformapi/startapp?appId=2021003115672468',
     packageName: config.package_name
   })
+
   floatyInstance.setFloatyInfo({ x: config.device_width / 2, y: config.device_height / 2 }, "查找是否有'打开'对话框")
-  let confirm = widgetUtils.widgetGetOne(/^打开$/, 1000)
-  if (confirm) {
-    automator.clickCenter(confirm)
+  let startTime = new Date().getTime()
+  let limitTime = 30000
+  while (new Date().getTime() - startTime < limitTime) {
+    let confirm = widgetUtils.widgetGetOne(/^打开$/, 1000)
+    if (confirm) {
+      automator.clickRandom(confirm)
+    }
+    if (alipayInFloatyWindow()) {
+      warnInfo(['当前为小窗模式，回到桌面重新打开'])
+      home()
+      return startApp()
+    }
+    if (openAlipayMultiLogin(reopen)) {
+      return startApp(true)
+    }
+    if (config.is_alipay_locked) {
+      alipayUnlocker.unlockAlipay()
+      sleep(1000)
+    }
+
+    if (isInProjectUI(1000)) {
+      floatyInstance.setFloatyText('已进入神奇海洋')
+      return true
+    }
+    
+    sleep(1000)
   }
-  sleep(1000)
-  if (widgetUtils.idWaiting('user-energy-info', '神奇海洋')) {
-    debugInfo(['打开神奇海洋成功'])
-  } else {
-    warnInfo(['打开神奇海洋检测超时'])
-  }
-  sleep(1000)
+
+  warnInfo(['打开神奇海洋检测超时'])
+  return false
 }
 
 function findTrashs (delay, onceOnly, friend) {
+  let temp_img = null
   floatyInstance.setFloatyInfo({ x: config.device_width / 2, y: config.device_height / 2 }, '找垃圾球中...')
   sleep(delay || 3000)
   let screen = commonFunctions.checkCaptureScreenPermission()
   if (screen) {
-    this.temp_img = images.copy(screen, true)
+    temp_img = images.copy(screen, true)
     let findBalls = doFindTrashs(screen)
     debugInfo(['找到的球：{}', JSON.stringify(findBalls)])
     if (!friend) {
@@ -368,8 +448,8 @@ function findTrashs (delay, onceOnly, friend) {
     }
     if (findBalls && findBalls.length > 0) {
       // config.save_yolo_train_data = true
-      YoloTrainHelper.saveImage(this.temp_img, '有垃圾球', 'sea_ball', config.sea_ball_train_save_data)
-      this.temp_img.recycle()
+      YoloTrainHelper.saveImage(temp_img, '有垃圾球', 'sea_ball', config.sea_ball_train_save_data)
+      temp_img.recycle()
       let ball = findBalls[0]
       floatyInstance.setFloatyInfo({ x: ball.x, y: ball.y }, '找到了垃圾')
       sleep(500)
@@ -383,20 +463,19 @@ function findTrashs (delay, onceOnly, friend) {
         clickPoint(ball.centerX, ball.centerY)
       }
       sleep(1000)
-      let collect = widgetUtils.widgetGetOne('.*(清理|收下|(欢迎|迎回)伙伴|.*不.*了.*).*')
+      let collect = widgetUtils.widgetGetOne('.*(清理|收下|(欢迎|迎回).*伙伴|.*不.*了.*).*')
       if (collect) {
         clickPoint(collect.bounds().centerX(), collect.bounds().centerY())
-        if (onceOnly) {
-          return true
+        if (!onceOnly) {
+          // 二次校验
+          findTrashs(1500)
         }
-        // 二次校验
-        findTrashs(1500)
-        return true
       }
+      return true
     } else {
       floatyInstance.setFloatyText('未找到垃圾球')
-      YoloTrainHelper.saveImage(this.temp_img, '无垃圾球', 'sea_ball', config.sea_ball_train_save_data)
-      this.temp_img.recycle()
+      YoloTrainHelper.saveImage(temp_img, '无垃圾球', 'sea_ball', config.sea_ball_train_save_data)
+      temp_img.recycle()
     }
   }
   return false
@@ -415,12 +494,14 @@ function collectFriends (retry) {
     floatyInstance.setFloatyInfo({ x: btn.x, y: btn.y }, '点击拼图按钮')
     clickPoint(btn.x, btn.y)
     sleep(1000)
-    waitForStrollBtn()
-    if (findTrashs(1000, true, true)) {
-      sleep(1000)
-      return collectFriends()
-    } else {
-      logFloaty.pushLog('查找拼图失败，可能已经没有机会了')
+    if (!widgetUtils.widgetWaiting('今日.*已达.*上限','清理次数上限', 2000)) {
+      waitForStrollBtn()
+      if (findTrashs(1000, true, true)) {
+        sleep(1000)
+        return collectFriends()
+      } else {
+        logFloaty.pushLog('查找拼图失败，可能已经没有机会了')
+      }
     }
   } else {
     YoloTrainHelper.saveImage(commonFunctions.captureScreen(), '未找到拼图按钮', 'sea_ball_friend', config.sea_ball_train_save_data)
@@ -447,7 +528,7 @@ function clickPoint (x, y) {
     debugInfo(['shizuku点击：{}, {}', x, y])
     $shizuku(`input tap ${x} ${y}`)
   } else {
-    automator.click(x, y)
+    automator.clickPointRandom(x, y)
   }
 }
 
@@ -457,6 +538,7 @@ function checkNext (tryTime, checkOnly) {
     if (new Date().getHours() < 21) {
       warnInfo('当前版本AutoJS不支持本地OCR，直接设置两小时后的定时任务，此方式并不准确请手动设置实际定时时间，每天间隔两小时的定时任务 并注释下面自动设置定时任务的代码')
       commonFunctions.setUpAutoStart(120)
+      NotificationHelper.createNotification('神奇海洋收集两小时后执行', '当前版本不支持OCR识别，直接设置两小时后执行，执行时间：' + buildNextTime(120), NOTIFICATION_ID)
       NotificationHelper.createNotification('神奇海洋收集两小时后执行', '当前版本不支持OCR识别，直接设置两小时后执行，执行时间：' + buildNextTime(120), NOTIFICATION_ID)
     }
     return
@@ -474,6 +556,9 @@ function checkNext (tryTime, checkOnly) {
     if (config.develop_mode) {
       debugForDev(['图片信息：data:image/png;base64,{}', images.toBase64(clip)])
     }
+    if (config.develop_mode) {
+      debugForDev(['图片信息：data:image/png;base64,{}', images.toBase64(clip)])
+    }
     let text = ocrUtil.recognize(screen, ocrRegion)
     if (text) {
       text = text.replace(/\n/g, '')
@@ -487,6 +572,7 @@ function checkNext (tryTime, checkOnly) {
         debugInfo(['下次生产时间: {} 分 {} 秒', remainMins, remainSecs])
         if (!checkOnly) {
           commonFunctions.setUpAutoStart(remainMins + 1)
+          NotificationHelper.createNotification('神奇海洋收集，' + (remainMins + 1) + '分钟后执行', 'OCR识别成功，下次执行时间：' + buildNextTime(remainMins + 1), NOTIFICATION_ID)
           NotificationHelper.createNotification('神奇海洋收集，' + (remainMins + 1) + '分钟后执行', 'OCR识别成功，下次执行时间：' + buildNextTime(remainMins + 1), NOTIFICATION_ID)
         }
         recognizeFailed = false
@@ -502,11 +588,18 @@ function checkNext (tryTime, checkOnly) {
       } else {
         commonFunctions.setUpAutoStart(120)
         NotificationHelper.createNotification('神奇海洋收集，两小时后执行', 'OCR识别失败，直接设置两小时后的定时任务，执行时间：' + buildNextTime(120), NOTIFICATION_ID)
+        NotificationHelper.createNotification('神奇海洋收集，两小时后执行', 'OCR识别失败，直接设置两小时后的定时任务，执行时间：' + buildNextTime(120), NOTIFICATION_ID)
       }
     }
   }
   warningFloaty.enableTip()
 
+}
+
+function buildNextTime (mins) {
+  let now = new Date()
+  let next = new Date(now.getTime() + mins * 60 * 1000)
+  return formatDate(next, 'HH:mm:ss')
 }
 
 function buildNextTime (mins) {
@@ -526,10 +619,10 @@ function getOcrRegionByYolo () {
     let { x, y, width, height, label, confidence } = result[0]
     debugInfo(['yolo 识别ocr区域：「{}」confidence: {}', [x, y, width, height], confidence])
     let region = [x, y, width, height].map(v => parseInt(v))
-    config.overwrite('sea_ocr_left', x)
-    config.overwrite('sea_ocr_top', y)
-    config.overwrite('sea_ocr_width', width)
-    config.overwrite('sea_ocr_height', height)
+    config.overwrite('sea_ocr_left', region[0])
+    config.overwrite('sea_ocr_top', region[1])
+    config.overwrite('sea_ocr_width', region[2])
+    config.overwrite('sea_ocr_height', region[3])
     return region
   }
   return null
@@ -595,32 +688,424 @@ function waitForStrollBtn () {
 }
 
 /**
- * 领取奖励
+ * 打开任务窗口
  */
-function collectRewards () {
+function openTaskWindow () {
   if (!YoloDetectionUtil.enabled) {
     logFloaty.pushErrorLog('领奖励需要YOLO支持')
     warnInfo(['领取奖励功能需要开启YOLO'], true)
-    return
+    return false
   }
+  
   let reward = YoloDetectionUtil.forward(commonFunctions.captureScreen(), { labelRegex: 'reward', confidence: config.yolo_confidence || 0.7 })
   if (reward && reward.length > 0) {
     reward = reward[0]
     floatyInstance.setFloatyInfo({ x: reward.centerX, y: reward.centerY }, '领奖励')
     clickPoint(reward.centerX, reward.centerY)
     sleep(1000)
+  }
+  return isInTaskUI()
+}
+
+/**
+ * 获取当前界面是否在项目界面
+ */
+function isInProjectUI (timeout) {
+  timeout = timeout || 2000
+  return widgetUtils.idWaiting('ocean-info', '神奇海洋', timeout) || widgetUtils.idWaiting('ocean-fish-cnt-percent', '神奇海洋', timeout)
+}
+
+/**
+ * 获取当前界面是否在任务界面
+ */
+function isInTaskUI(timeout) {
+  timeout = timeout || 2000
+  return widgetUtils.widgetWaiting('邀请.*好友一起修复海洋', '任务列表', timeout)
+}
+
+function backToTaskUI() {
+  warnInfo('检查是否在任务界面，不在的话返回，尝试两次')
+  let backResult = false
+  let waitCount = 2
+  while (!(backResult=isInTaskUI(5000)) && waitCount-->0) {
+    automator.back()
+    sleep(1000)
+  }
+
+  if (backResult) {
+    sleep(2000)
+    return true
+  }
+  
+  warnInfo(['返回失败，重新尝试打开任务界面'])
+  if (!isInProjectUI()) {
+    warnInfo(['不在项目界面，重新尝试打开项目'])
+    startApp()
+  }
+
+  if (!isInProjectUI()) {
+    warnInfo(['打开项目失败，5分钟后重新尝试'])
+    commonFunctions.setUpAutoStart(5)
+    return false
+  }
+
+  if(!isInTaskUI()) {
+    if (!openTaskWindow()) {
+      warnInfo(['打开任务界面失败，5分钟后重新尝试'])
+      commonFunctions.setUpAutoStart(5)
+      return false
+    }
+  }
+  return true
+}
+
+/**
+ * 领取奖励
+ */
+function collectRewards () {
+  if (openTaskWindow()) {
+    //做任务
+    doTaskByText()
+
+    //领取奖励
     let collect = widgetUtils.widgetGetOne('立即领取', 1000)
     let limit = 5
     while (collect && limit-- > 0) {
       floatyInstance.setFloatyInfo({ x: collect.bounds().centerX(), y: collect.bounds().centerY() }, '立即领取')
+      // automator.clickRandom(collect)
       collect.click()
-      sleep(500)
+      sleep(1000)
+      let getBtn = widgetUtils.widgetGetOne('.*(收下|(欢迎|迎回).*伙伴|返回).*')
+      if (getBtn) {
+        automator.clickRandom(getBtn)
+        sleep(1000)
+        if (getBtn.text()=='迎回海洋伙伴') {
+          sleep(2000)
+          getBtn = widgetUtils.widgetGetOne('.*返回.*')
+          if (getBtn) {
+            automator.clickRandom(getBtn)
+            sleep(1000)
+          }
+        }
+        limit++
+      }
       collect = widgetUtils.widgetGetOne('立即领取', 1000)
     }
     automator.back()
   }
 }
 
+function answerQuestion(titleObj,entryBtn) {
+  let ai_type = config.ai_type || 'kimi'
+  let kimi_api_key = config.kimi_api_key
+  let chatgml_api_key = config.chatgml_api_key
+
+  let key = ai_type === 'kimi' ? kimi_api_key : chatgml_api_key
+  if (!key) {
+    logFloaty.pushLog('推荐去KIMI开放平台申请API Key并在可视化配置中进行配置')
+    logFloaty.pushLog('否则免费接口这个智障AI经常性答错')
+  }
+  
+  let result = false
+  if (entryBtn) {
+    logFloaty.pushLog('等待进入 '+titleObj.text())
+    entryBtn.click()
+    sleep(3000)
+
+    let questionRoot = widgetUtils.widgetGetOne('题目来源.*',5000)
+    if (questionRoot && questionRoot.parent() && questionRoot.parent().childCount() > 1){
+      questionRoot = questionRoot.parent().child(0)
+      let result = AiUtil.getQuestionInfo(ai_type, key, questionRoot)
+      if (result) {
+        warnInfo('答案解释：' + result.describe)
+        warnInfo('答案坐标：' + JSON.stringify(result.target))
+        automator.clickPointRandom(result.target.x, result.target.y)
+      }
+    }
+    sleep(1000)
+    automator.back()
+    sleep(1000)
+  }
+  return !!result
+}
+
+function doBrowseTask(titleText, entryBtn, timeout, needScroll) {
+  if (!entryBtn) {
+    logFloaty.pushLog('无入口按钮，跳过执行：'+titleText)
+    return false
+  }
+  titleText = titleText || entryBtn.text()
+  timeout = timeout || 15
+
+  entryBtn.click()
+  sleep(1000)
+  logFloaty.pushLog('等待进入 '+titleText)
+  sleep(2000);
+
+  if (timeout) {
+    logFloaty.pushLog(titleText+' 等待倒计时结束')
+    let limit = timeout
+    while (limit-- > 0) {
+      sleep(1000)
+      logFloaty.replaceLastLog(titleText+' 等待倒计时结束 剩余：' + limit + 's')
+      if (limit % 2 == 0 && needScroll) {
+        automator.randomScrollDown()
+      }
+    }
+  } else {
+    sleep(3000)
+    logFloaty.pushLog('啥也不用干 直接返回')
+  }
+  return backToTaskUI()
+}
+
+function doVisitAppTask(titleText,entryBtn,timeout,needScroll) {
+  if (!commonFunctions.checkAppInstalledByName(titleText)) {
+    logFloaty.pushLog('未安装应用，跳过执行：'+titleText)
+    return false
+  }
+  
+  currentRunning = commonFunctions.myCurrentPackage()
+  debugInfo('当前包名：'+currentRunning)
+  entryBtn.click()
+
+  logFloaty.pushLog('等待进入 '+titleText)
+  let waitCount = 10
+  while (currentRunning == commonFunctions.myCurrentPackage() && waitCount-- > 0) {
+    sleep(1000)
+  }
+  if (currentRunning == commonFunctions.myCurrentPackage()) {
+    logFloaty.pushLog('进入失败，返回')
+    waitCount = 2
+    while (!isInTaskUI() && waitCount-->0) {
+      automator.back()
+      sleep(1000)
+    }
+    
+    if (!isInTaskUI()) {
+      warnInfo(['返回失败，5分钟后重新尝试'])
+      commonFunctions.setUpAutoStart(5)
+      return false
+    }
+  }
+  //已进入目标应用，等待加载完成
+  sleep(5000)
+
+  //根据需要等待一段时间进行浏览
+  if (timeout) {
+    logFloaty.pushLog(titleText+' 等待倒计时结束')
+    let limit = timeout / 2
+    while (limit-- > 0) {
+      //检查是否有弹窗
+      let popupCancelBtn = widgetUtils.widgetGetOne("^取消|忽略|关闭|拒绝$", 1000, false, false, m => m.boundsInside(0,  config.device_height * 0.2, config.device_width, config.device_height))
+      if (popupCancelBtn) {
+        debugInfo('找到了弹窗取消按钮')
+        automator.clickRandom(popupCancelBtn)
+        sleep(1000)
+      }
+      //检查是否有验证窗口，有则等待直到消失
+      commonFunctions.waitForTBVerify()
+
+      sleep(1000)
+      logFloaty.replaceLastLog(titleText+' 等待倒计时结束 剩余：' + limit + 's')
+      if (limit % 2 == 0 && needScroll) {
+        automator.randomScrollDown()
+      }
+    }
+  } else {
+    sleep(3000)
+    logFloaty.pushLog('啥也不用干 直接返回')
+  }
+  commonFunctions.minimize()
+  sleep(1000)
+  if (currentRunning != commonFunctions.myCurrentPackage()) {
+    logFloaty.pushLog('未返回原应用，直接打开 '+ currentRunning)
+    app.launch(currentRunning);
+    sleep(3000)
+  }
+
+  return backToTaskUI()
+}
+
+function doCommonTask(titleText, entryBtn, timeout, needScroll) {
+  if (!commonFunctions.checkAppInstalledByName(titleText)) {
+    logFloaty.pushLog('未安装应用，跳过执行：'+titleText)
+    return false
+  }
+  
+  if (!entryBtn) {
+    logFloaty.pushLog('无入口按钮，跳过执行：'+titleText)
+    return false
+  }
+  titleText = titleText || entryBtn.text()
+  timeout = timeout || 15
+  let taskType = 'browse'
+
+  currentRunning = commonFunctions.myCurrentPackage()
+  debugInfo('当前包名：'+currentRunning)
+  
+  entryBtn.click()
+  logFloaty.pushLog('等待进入 '+titleText+', 计时：'+timeout+', 滑动：'+needScroll)
+  commonFunctions.waitForAction(10, titleText, function () {
+    let popupConfirmBtn = widgetUtils.widgetGetOne("^允许$", 1000, false, false, (m) =>
+      m.boundsInside(0, config.device_height * 0.2, config.device_width, config.device_height)
+    );
+    if (popupConfirmBtn) {
+      debugInfo("找到了弹窗确认按钮");
+      automator.clickRandom(popupConfirmBtn);
+      sleep(5000)
+      return true
+    }
+    return false
+  });
+
+  if (currentRunning != commonFunctions.myCurrentPackage()) {
+    taskType = 'visitapp'
+    //已进入目标应用，等待加载完成
+    sleep(5000)
+  } else if (isInTaskUI()) {
+    logFloaty.pushLog('进入任务失败：'+titleText)
+    return false
+  }
+
+  //检查是否有验证窗口，有则等待直到消失
+  commonFunctions.waitForTBVerify()
+
+  //根据需要等待一段时间进行浏览
+  if (timeout) {
+    logFloaty.pushLog(titleText+' 等待倒计时结束')
+    let limit = timeout
+    while (limit-- > 0) {
+      //检查是否有弹窗
+      let popupCancelBtn = widgetUtils.widgetGetOne("^取消|忽略|关闭|拒绝$", 1000, false, false, m => m.boundsInside(0,  config.device_height * 0.2, config.device_width, config.device_height))
+      if (popupCancelBtn) {
+        debugInfo('找到了弹窗取消按钮')
+        automator.clickRandom(popupCancelBtn)
+      }
+
+      logFloaty.replaceLastLog(titleText+' 等待倒计时结束 剩余：' + limit + 's')
+      if (limit % 2 == 0 && needScroll) {
+        automator.scrollUpAndDown()
+        sleep(100)
+      } else {
+        sleep(1000)
+      }
+    }
+  } else {
+    sleep(3000)
+    logFloaty.pushLog('啥也不用干 直接返回')
+  }
+  if (taskType == 'visitapp') {
+    commonFunctions.minimize()
+    sleep(1000)
+    if (currentRunning != commonFunctions.myCurrentPackage()) {
+      logFloaty.pushLog('未返回原应用，直接打开 '+ currentRunning)
+      app.launch(currentRunning);
+      sleep(3000)
+    }
+  }
+
+  automator.back()
+  sleep(1000)
+  return true
+}
+
+function doSpecialTask(action,titleObj,entryBtn) {
+  if (!titleObj||!entryBtn) {
+    return false
+  }
+  switch(action) {
+    case 'answerQuestion':
+      return answerQuestion(titleObj,entryBtn)
+    default:
+      return false
+  }
+}
+
+function scrollUpTop () {
+  let limit = 5
+  do {
+    automator.randomScrollUp(config.device_height*0.35,config.device_height*0.40,null,null,true)
+  } while (limit-- > 0)
+}
+
+function doTaskByText (force) {
+  logFloaty.pushLog('执行每日任务')
+
+  let hasTask = false
+  let limit = 3
+
+  while (limit-- > 0) {
+    automator.randomScrollDown(null,null,config.device_height*0.35,config.device_height*0.40)
+    sleep(1000)
+  }
+
+  let taskInfos = [
+    // 去答题|立即领取
+    {btnRegex:'去答题', tasks:[
+      {taskType:'answerQuestion',titleRegex:'.*'},
+    ]},
+    // 去看看|立即领取
+    {btnRegex:'去看看', tasks:[
+      {taskType:'browse',titleRegex:'.*逛一逛市集.*',timeout:15,needScroll:true},
+      {taskType:'browse',titleRegex:'.*信用卡.*得能量.*',timeout:10,needScroll:false},
+      {taskType:'browse',titleRegex:'.*去庄园.*',timeout:3,needScroll:false},
+      {taskType:'browse',titleRegex:'.*逛一逛余额宝.*',timeout:15,needScroll:false},
+      {taskType:'browse',titleRegex:'.*去逛.*会场.*',timeout:15,needScroll:true},
+      {taskType:'browse',titleRegex:'.*逛逛.*频道.*',timeout:10,needScroll:true},
+    ]},
+    // 去逛逛|立即领取
+    {btnRegex:'去逛逛', tasks:[
+      {taskType:'browse',titleRegex:'.*逛逛花呗.*',timeout:15,needScroll:true},
+      {taskType:'browse',titleRegex:'.*支付宝会员.*',timeout:3,needScroll:false},
+      {taskType:'browse',titleRegex:'.*逛逛支付宝芭芭农场.*',timeout:10,needScroll:false},
+      {taskType:'browse',titleRegex:'.*去看看.*会场.*',timeout:15,needScroll:true},
+      {taskType:'browse',titleRegex:'.*去逛饿了么.*',timeout:15,needScroll:false},
+      {taskType:'app',titleRegex:'.*逛一逛闲鱼.*',timeout:20,needScroll:false},
+      {taskType:'app',titleRegex:'.*逛一逛淘宝.*',timeout:15,needScroll:false},
+      {taskType:'app',titleRegex:'.*去逛淘宝.*',timeout:15,needScroll:false},
+      {taskType:'app',titleRegex:'.*逛一逛点淘.*',timeout:20,needScroll:true},
+      {taskType:'app',titleRegex:'.*去淘宝.*视频.*',timeout:20,needScroll:true},
+      {taskType:'app',titleRegex:'.*逛淘金币.*',timeout:10,needScroll:false},
+      {taskType:'app',titleRegex:'.*去快手.*',timeout:10,needScroll:false},
+      {taskType:'app',titleRegex:'.*去饿了么.*',timeout:10,needScroll:false},
+      {taskType:'app',titleRegex:'.*去淘宝.*',timeout:15,needScroll:true},
+    ]},
+  ]
+
+  do {
+    hasTask = false
+    for (let i = 0; i < taskInfos.length; i++) {
+      let taskInfo = taskInfos[i]
+      let btns = widgetUtils.widgetGetAll(taskInfo.btnRegex, 3000)
+      if (btns && btns.length > 0) {
+        btns.forEach(btn => {
+          let titleObj = commonFunctions.getTaskTitleObj(btn)
+          if (titleObj) {
+            let titleText = titleObj.text()
+            logFloaty.pushLog('发现任务：'+titleText)
+            for (let j = 0; j < taskInfo.tasks.length; j++) {
+              let task = taskInfo.tasks[j]
+              if (titleText.match(task.titleRegex)) {
+                logFloaty.pushLog('开始执行任务：'+titleText)
+                if (task.taskType == 'browse') {
+                  hasTask = doCommonTask(titleText, btn, task.timeout, task.needScroll) || hasTask
+                } else if (task.taskType == 'app') {
+                  hasTask = doCommonTask(titleText, btn, task.timeout, task.needScroll) || hasTask
+                } else {
+                  hasTask = doSpecialTask(task.taskType, titleObj, btn) || hasTask
+                }
+                backToTaskUI()
+                break
+              }
+            }
+          }
+        })
+      }
+    }
+  } while (hasTask)
+  scrollUpTop()
+}
 
 function yoloWait (labelRegex, limit, checker) {
   limit = limit || 5

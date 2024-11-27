@@ -244,6 +244,7 @@ let default_config = {
   stroll_button_top: null,
   stroll_button_width: null,
   stroll_button_height: null,
+  onekey_button_point: null,
   auto_set_bang_offset: true,
   bang_offset: 0,
   limit_runnable_time_range: true,

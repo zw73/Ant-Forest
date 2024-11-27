@@ -3,6 +3,7 @@
  * @Date: 2019-01-31 22:58:00
  * @Last Modified by: TonyJiangWJ
  * @Last Modified time: 2024-11-21 15:10:57
+ * @Last Modified time: 2024-11-21 15:10:57
  * @Description: 
  */
 let { config: _config, storage_name: _storage_name } = require('../config.js')(runtime, global)
@@ -61,6 +62,7 @@ function Ant_forest () {
       home()
     }
     _commonFunctions.backHomeIfInVideoPackage()
+    _commonFunctions.backHomeIfInVideoPackage()
     if (_config.start_alipay_by_url) {
       debugInfo(['使用app.openUrl方式打开森林，如果无法打开请去配置中关闭'])
       app.openUrl('https://render.alipay.com/p/s/i/?scheme=' + encodeURIComponent('alipays://platformapi/startapp?appId=60000002'))
@@ -71,19 +73,41 @@ function Ant_forest () {
         packageName: _config.package_name
       })
     }
+
+    sleep(500)
     FloatyInstance.setFloatyInfo({ x: _config.device_width / 2, y: _config.device_height / 2 }, "查找是否有'打开'对话框")
-    let confirm = _widgetUtils.widgetGetOne(/^打开$/, 1000)
-    if (confirm) {
-      automator.clickCenter(confirm)
-    }
-    _commonFunctions.readyForAlipayWidgets()
-    if (openAlipayMultiLogin(reopen)) {
-      return
-    }
-    if (_config.is_alipay_locked) {
+    let startTime = new Date().getTime()
+    while (new Date().getTime() - startTime < 30000) {
+      let confirm = _widgetUtils.widgetGetOne(/^打开$/, 1000)
+      if (confirm) {
+        automator.clickRandom(confirm)
+        sleep(1000)
+      }
+      // _commonFunctions.readyForAlipayWidgets()
+        
+      if (alipayInFloatyWindow()) {
+        warnInfo(['当前为小窗模式，回到桌面重新打开'])
+        home()
+        return startApp()
+      }
+
+      if (openAlipayMultiLogin(reopen)) {
+        return startApp(true)
+      }
+  
+      if (_config.is_alipay_locked) {
+        alipayUnlocker.unlockAlipay()
+        sleep(1000)
+      }
+
+      if (_widgetUtils.homePageWaiting()) {
+        FloatyInstance.setFloatyText('已进入蚂蚁森林')
+        return true
+      }
+
       sleep(1000)
-      alipayUnlocker.unlockAlipay()
     }
+    return false
   }
 
   function alipayInFloatyWindow () {
@@ -106,13 +130,15 @@ function Ant_forest () {
   }
 
   function openAlipayMultiLogin (reopen) {
-    if (config.multi_device_login && !reopen) {
+    if (_config.multi_device_login && !reopen) {
       debugInfo(['已开启多设备自动登录检测，检查是否有 进入支付宝 按钮'])
       let entryBtn = _widgetUtils.widgetGetOne(/^进入支付宝$/, 1000)
       if (entryBtn) {
-        automator.clickCenter(entryBtn)
+        FloatyInstance.setFloatyText('其他设备正在登录，等待5分钟后进入')
+        _commonFunctions.waitForAction(300, '等待进入支付宝')
+        unlocker && unlocker.exec()
+        automator.clickRandom(entryBtn)
         sleep(1000)
-        startApp()
         return true
       } else {
         debugInfo(['未找到 进入支付宝 按钮'])
@@ -135,7 +161,7 @@ function Ant_forest () {
         _config.timeout_findOne
       )
       if (floty) {
-        floty.click()
+        automator.clickRandom(floty)
       }
     })
     threads.start(function () {
@@ -145,17 +171,17 @@ function Ant_forest () {
           _config.timeout_findOne
         )
       if (buttons) {
-        buttons.click()
+        automator.clickRandom(buttons)
       }
     })
     threads.start(function () {
       let floty = descEndsWith('关闭蒙层').findOne(_config.timeout_findOne)
       if (floty) {
-        floty.click()
+        automator.clickRandom(floty)
       }
       floty = textEndsWith('关闭蒙层').findOne(_config.timeout_findOne)
       if (floty) {
-        floty.click()
+        automator.clickRandom(floty)
       }
     })
     debugInfo('关闭蒙层成功')
@@ -312,6 +338,7 @@ function Ant_forest () {
   // 获取自己的能量球中可收取倒计时的最小值
   const getMinCountdownOwn = function () {
     // 通过图像分别判断白天和晚上的倒计时球颜色数据
+    _min_countdown = null
     let ballPoints = getValidClickableBalls()
     if (ballPoints && ballPoints.length > 0) {
       ballPoints.sort((a, b) => a.x - b.x)
@@ -325,9 +352,10 @@ function Ant_forest () {
         let text = localOcrUtil.recognize(ballImage)
         if (text && countdownCheck.test(text)) {
           let r = countdownCheck.exec(text)
-          _min_countdown = parseInt(r[1]) * 60 + parseInt(r[2])
-          debugInfo(['识别倒计时数据：{} 最小剩余时间为：{}', text, _min_countdown])
-          return true
+          let thisCountDown = parseInt(r[1]) * 60 + parseInt(r[2])
+          _min_countdown = _min_countdown == null ? thisCountDown : Math.min(_min_countdown, thisCountDown)
+          debugInfo(['识别倒计时数据：{} 最小剩余时间为：{}', text.replace('\n',' '), _min_countdown])
+          // return true
         }
         return false
       })
@@ -463,6 +491,10 @@ function Ant_forest () {
       if (!_widgetUtils.homePageWaiting()) {
         debugInfo('非仅收自己，返回主页面')
         automator.back()
+        if (!_widgetUtils.homePageWaiting()) {
+          debugInfo('还是没回到主页面，再次返回')
+          automator.back()
+        }
         _widgetUtils.homePageWaiting()
       }
       // 二次收集自身能量
@@ -479,6 +511,7 @@ function Ant_forest () {
       getSignReward()
     }
     _post_energy > 0 && AntForestDao.saveMyEnergy(_post_energy)
+    _commonFunctions.showEnergyInfo(null, _has_next ? getRealSleepTime(_min_countdown) : null)
     _commonFunctions.showEnergyInfo(null, _has_next ? getRealSleepTime(_min_countdown) : null)
     let energyInfo = _commonFunctions.getTodaysRuntimeStorage('energy')
     if (!_has_next) {
@@ -510,21 +543,21 @@ function Ant_forest () {
   function randomScrollDown () {
     let randomTop = _config.topRange() || {}
     let randomBottom = _config.bottomRange() || {}
-    automator.randomScrollDown(randomTop.start, randomTop.end, randomBottom.start, randomBottom.end)
+    automator.randomScrollDown(randomBottom.start, randomBottom.end, randomTop.start, randomTop.end)
   }
 
-  function randomScrollUp () {
+  function randomScrollUp (isFast) {
     let randomTop = _config.topRange() || {}
     let randomBottom = _config.bottomRange() || {}
-    automator.randomScrollUp(randomBottom.start, randomBottom.end, randomTop.start, randomTop.end)
+    automator.randomScrollUp(randomTop.start, randomTop.end, randomBottom.start, randomBottom.end,isFast)
   }
 
   function scrollUpTop () {
     let limit = 3
     do {
-      randomScrollUp()
-      randomScrollUp()
-    } while (limit-- > 0 && !_widgetUtils.widgetGetOne('去保护', 1000, false, false, m => m.boundsInside(_config.device_width / 2, 0, _config.device_width, _config.device_width * 0.4), { algorithm: 'PVDFS' }))
+      randomScrollUp(true)
+      randomScrollUp(true)
+    } while (limit-- > 0 && !_widgetUtils.widgetGetOne('去保护', 1000, false, false, m => m.boundsInside(_config.device_width / 2, 0, _config.device_width, _config.device_height * 0.4), { algorithm: 'PVDFS' }))
     randomScrollUp()
   }
 
@@ -532,7 +565,12 @@ function Ant_forest () {
     let limit = 5
     do {
       randomScrollDown()
-    } while (--limit > 0 && !_widgetUtils.widgetChecking(_config.enter_friend_list_ui_content || '.*查看更多好友.*', { algorithm: 'PDFS', timeoutSetting: 1000 }))
+    } while (--limit > 0 
+      && !_widgetUtils.widgetChecking(_config.enter_friend_list_ui_content || '.*查看更多好友.*', 
+              { //algorithm: 'PVDFS', 
+                timeoutSetting: 3000, 
+                appendFilter: m => m.boundsInside(0,0,_config.device_width,_config.device_height-10) 
+              }))
     sleep(500)
     let moreFriends = _widgetUtils.widgetGetOne(_config.enter_friend_list_ui_content || '.*查看更多好友.*')
     if (moreFriends) {
@@ -566,13 +604,15 @@ function Ant_forest () {
     automator.back()
     scrollUpTop()
     let tryCount = 1
-    while (!_widgetUtils.homePageWaiting()) {
-      if (tryCount++ > 3) {
-        return false
-      }
+    while (!_widgetUtils.homePageWaiting() && tryCount++ <= 3) {
+      automator.back()
+      sleep(500)
+    }
+    if (tryCount > 3) {
       warnInfo('未正确回到首页，尝试重新打开')
       startApp()
       sleep(500)
+      return false
     }
   }
 
@@ -597,12 +637,12 @@ function Ant_forest () {
           warnInfo('无障碍点击失败，尝试坐标点击')
           randomScrollDown()
           backToForest = _widgetUtils.widgetGetOne(_config.stroll_end_ui_content || /^返回(我的|蚂蚁)森林>?|去蚂蚁森林.*$/, 1000)
-          backToForest && automator.clickCenter(backToForest)
+          backToForest && automator.clickRandom(backToForest)
         }
       } else {
         automator.back()
       }
-      sleep(500)
+      sleep(5000)
       let tryCount = 1
       while (!_widgetUtils.homePageWaiting()) {
         if (tryCount++ > 3) {
@@ -610,12 +650,12 @@ function Ant_forest () {
         }
         warnInfo('逛一逛结束后未正确回到首页，尝试重新打开')
         startApp()
-        sleep(500)
+        sleep(1000)
       }
       _post_energy = getCurrentEnergy(true)
       logInfo(['逛一逛结束 当前能量：{}', _post_energy])
       debugInfo(['collect any?: {}', runResult.collectAny])
-      if (runResult.collectAny && config.recheck_after_stroll) {
+      if (runResult.collectAny && _config.recheck_after_stroll) {
         logInfo(['二次校验逛一逛'])
         return tryCollectByStroll(true)
       }
@@ -627,10 +667,26 @@ function Ant_forest () {
     return [bd.left, bd.top, bd.right - bd.left, (bd.bottom - bd.top)]
   }
 
+  /**
+   * 给OCR识别点增加bounds方法 主要用于获取centerX 和 centerY
+   * @param {Rect} ocrPoint 
+   */
+  function wrapOcrPointWithBounds(ocrPoint) {
+    if (!ocrPoint) {
+      return null
+    }
+    if (!ocrPoint.bounds) {
+      let newPoint = Object.create(ocrPoint)
+      newPoint.bounds = () => ocrPoint
+      return newPoint
+    }
+    return ocrPoint
+  }
+
   const autoDetectTreeCollectRegion = function () {
     let showVisual = true
     if (_config.auto_detect_tree_collect_region) {
-      WarningFloaty.addText('准备查找 证书 控件', { x: config.device_width / 2, y: config.device_height / 2 })
+      WarningFloaty.addText('准备查找 证书 控件', { x: _config.device_width / 2, y: _config.device_height / 2 })
       let licenseWidget = _widgetUtils.widgetGetOne(/^\s*证书\s*$/, 1000)
       if (licenseWidget) {
         WarningFloaty.addRectangle('找到了证书控件', boundsToRegion(licenseWidget.bounds()))
@@ -639,8 +695,8 @@ function Ant_forest () {
         let anchorHeight = licenseWidget.parent().bounds().height()
         let tree_collect_left = anchorLeft
         let tree_collect_top = anchorBottom + anchorHeight
-        let tree_collect_width = config.device_width - (anchorLeft * 2)
-        let tree_collect_height = anchorHeight * 2.5
+        let tree_collect_width = _config.device_width - (anchorLeft * 2)
+        let tree_collect_height = parseInt(anchorHeight * 2.5)
         detectRegion = [tree_collect_left, tree_collect_top, tree_collect_width, tree_collect_height]
         infoLog('自动识别能量球区域：' + JSON.stringify(detectRegion))
         _config.overwrite('tree_collect_left', tree_collect_left)
@@ -664,13 +720,24 @@ function Ant_forest () {
     WarningFloaty.addRectangle('有效能量球所在区域', [_config.tree_collect_left, _config.tree_collect_top, _config.tree_collect_width, _config.tree_collect_height], '#00ff00')
   }
 
+  function scrollUpIfNeeded() {
+    let limit = 10
+    debugInfo(['向下滑动寻找 没有更多了 最大滑动次数：{}', limit * 3])
+    do {
+      randomScrollDown()
+      randomScrollDown()
+      randomScrollDown()
+    } while (!_widgetUtils.widgetChecking('.*没有更多了.*', { algorithm: 'PDFS', timeoutSetting: 1000 }) && limit-- > 0)
+  }
+
   function doSignUpForMagicSpecies () {
     sleep(5000)
     let confirm = _widgetUtils.widgetGetOne('收下|再抽一次.*')
     let maxTry = 3
     do {
       if (confirm) {
-        automator.clickCenter(confirm)
+        // automator.clickRandom(confirm)
+        confirm.click()
         if (!/收下/.test(confirm.desc() || confirm.text())) {
           sleep(5000)
         }
@@ -679,13 +746,131 @@ function Ant_forest () {
       }
       confirm = _widgetUtils.widgetGetOne('收下|再抽一次.*')
     } while (confirm && --maxTry > 0)
+
+    //查找奖励入口并点击
+    let magicSpeciesEntry = _widgetUtils.widgetGetOne('奖励',5000)
+    if (magicSpeciesEntry && localOcrUtil.enabled) {
+      // automator.clickRandom(magicSpeciesEntry)
+      magicSpeciesEntry.click()
+      sleep(2000)
+
+      //查找万能卡任务并完成
+      let timeout = 15
+
+      logFloaty.pushLog('查找 万能卡任务')
+      let screen = _commonFunctions.captureScreen()
+      let taskBtn = localOcrUtil.recognizeWithBounds(screen, [0, _config.device_height/4, _config.device_width, _config.device_height/2], '去看看')
+      if (taskBtn && taskBtn.length > 0) {
+        debugInfo('OCR找到了 万能卡任务 按钮')
+        collect = wrapOcrPointWithBounds(taskBtn[0].bounds)
+        automator.clickRandom(collect)
+        logFloaty.pushLog('等待进入 万能任务')
+        sleep(2000)
+
+        logFloaty.pushLog('万能卡任务 等待倒计时结束')
+        let limit = timeout
+        while (limit-- > 0) {
+          sleep(1000)
+          logFloaty.replaceLastLog('万能卡任务 等待倒计时结束 剩余：' + limit + 's')
+          if (limit % 2 == 0) {
+            automator.randomScrollDown()
+          }
+        }
+        automator.back()
+        sleep(1000)
+      }
+
+      //领取万能卡
+      logFloaty.pushLog('领取 万能卡')
+      screen = _commonFunctions.captureScreen()
+      taskBtn = localOcrUtil.recognizeWithBounds(screen, [0, _config.device_height/4, _config.device_width, _config.device_height/2], '立即领取')
+      if (taskBtn && taskBtn.length > 0) {
+        debugInfo('OCR找到了 万能卡领取 按钮')
+        collect = wrapOcrPointWithBounds(taskBtn[0].bounds)
+        automator.clickRandom(collect)
+        logFloaty.pushLog('万能卡领取成功')
+        sleep(1000)
+      }
+      
+      //使用万能卡道具
+      logFloaty.pushLog('进入 我的道具')
+      screen = _commonFunctions.captureScreen()
+      taskBtn = localOcrUtil.recognizeWithBounds(screen, [0, _config.device_height/4, _config.device_width, _config.device_height/2], '我的道具')
+      if (taskBtn && taskBtn.length > 0) {
+        debugInfo('OCR找到了 我的道具 按钮')
+        collect = wrapOcrPointWithBounds(taskBtn[0].bounds)
+        automator.clickRandom(collect)
+        sleep(1000)
+      }
+      
+      logFloaty.pushLog('使用 万能卡')
+      screen = _commonFunctions.captureScreen()
+      taskBtn = localOcrUtil.recognizeWithBounds(screen, [0, _config.device_height/4, _config.device_width, _config.device_height/2], '^使.*用$')
+      if (taskBtn && taskBtn.length > 0) {
+        debugInfo('OCR找到了 使用道具 按钮: '+JSON.stringify(taskBtn))
+        collect = wrapOcrPointWithBounds(taskBtn[0].bounds)
+        automator.clickRandom(collect)
+        sleep(1000)
+
+        logFloaty.pushLog('开始使用万能卡')
+        if (_widgetUtils.widgetWaiting('确定使用.*',null,2000)) {
+          let confirmBtn = _widgetUtils.widgetGetOne('确认')
+          if (confirmBtn) {
+            automator.clickRandom(confirmBtn)
+            sleep(5000)
+            
+            scrollUpIfNeeded()
+            
+            confirmBtn = _widgetUtils.widgetGetAll('收集中.*')
+            if (confirmBtn && confirmBtn.length > 0) {
+              //反序排列confirmBtn数组
+              confirmBtn = confirmBtn.reverse()
+
+              //获取第一个confirmBtn
+              confirmBtn = confirmBtn[0]
+              confirmBtn.parent().click()
+              sleep(3000)
+              let limit = 5
+              while (!(confirmBtn=_widgetUtils.widgetGetOne('未获得',1000,false,false,m=>m.boundsInside(0,0,_config.device_width,_config.device_height-10))) 
+                && limit-- > 0) {
+                randomScrollDown()
+                sleep(1000)
+              }
+              if (confirmBtn) {
+                selectBounds = confirmBtn.bounds()
+                selectBounds.top = selectBounds.bottom+3
+                selectBounds.bottom += 30
+                automator.clickPointRandom(selectBounds.centerX() , selectBounds.centerY())
+                sleep(1000)
+                if (_widgetUtils.widgetWaiting('确定选择.*',null,2000)) {
+                  let confirmBtn = _widgetUtils.widgetGetOne('确定')
+                  if (confirmBtn) {
+                    automator.clickRandom(confirmBtn)
+                    sleep(2000)
+                    logFloaty.pushLog('万能卡使用成功')
+                    _commonFunctions.setMagicCollected()
+                  }
+                }
+              }
+              automator.back()
+              sleep(1000)
+            }
+            automator.back()
+            sleep(1000)
+          }
+        }
+        debugInfo('万能卡使用结束')
+      }
+    }
+    
+    //返回主界面
     automator.back()
     sleep(1000)
-    _commonFunctions.setMagicCollected()
   }
 
   function signUpForMagicSpecies () {
     if (_commonFunctions.checkMagicCollected()) {
+      debugInfo('今日已经执行过神奇物种签到 跳过')
       return
     }
     logFloaty.pushLog('执行神奇物种签到')
@@ -699,7 +884,8 @@ function Ant_forest () {
       let result = YoloDetection.forward(screen, { confidendce: 0.7, labelRegex: 'magic_species' })
       if (result && result.length > 0) {
         debugInfo(['找到了神奇物种入口：{}', JSON.stringify(result)])
-        automator.click(result[0].centerX, result[0].centerY)
+        // automator.clickPointRandom(result[0].centerX, result[0].centerY)
+        automator.clickRandomRegion([result[0].x,result[0].y,result[0].width,result[0].height])
         doSignUpForMagicSpecies()
       }
     } else {
@@ -707,7 +893,8 @@ function Ant_forest () {
         let find = OpenCvUtil.findByGrayBase64(screen, _config.image_config.magic_species_icon)
         if (find) {
           debugInfo(['找到了神奇物种入口：{}', JSON.stringify(find)])
-          automator.click(find.centerX(), find.centerY())
+          // automator.clickPointRandom(find.centerX(), find.centerY())
+          automator.clickRandomRegion(find)
           doSignUpForMagicSpecies()
         }
       }
@@ -717,7 +904,7 @@ function Ant_forest () {
   function trySignUpForMagicSpeciesByStroll () {
     let find = _widgetUtils.widgetGetOne(_config.magic_species_text_in_stroll || '.*神奇物种新图鉴.*', 1000)
     if (find) {
-      automator.clickCenter(find)
+      automator.clickRandom(find)
       doSignUpForMagicSpecies()
     }
   }
@@ -748,7 +935,7 @@ function Ant_forest () {
       if (collect) {
         debugInfo('截图找到了 奖励')
       } else if (localOcrUtil.enabled) {
-        let rewardBtn = localOcrUtil.recognizeWithBounds(screen, null, '奖励')
+        let rewardBtn = localOcrUtil.recognizeWithBounds(screen, [0, _config.device_height/2, _config.device_width, _config.device_height/2], '奖励')
         if (rewardBtn && rewardBtn.length > 0) {
           collect = rewardBtn[0].bounds
           debugInfo('OCR找到了 奖励')
@@ -762,24 +949,92 @@ function Ant_forest () {
       }
     }
     if (collectPoint) {
-      automator.click(collectPoint.centerX, collectPoint.centerY)
-      sleep(1000)
-      let getRewards = _widgetUtils.widgetGetAll('^(立即领取|领取)$')
-      if (getRewards && getRewards.length > 0) {
-        logFloaty.pushLog('找到可领取的奖励数量：' + getRewards.length)
-        getRewards.forEach(getReward => {
-          getReward.click()
-          let confirmBtn = _widgetUtils.widgetGetOne('知道了', 500)
-          if (confirmBtn) {
-            automator.clickCenter(confirmBtn)
-            sleep(500)
-          }
-        })
-      } else {
-        logFloaty.pushLog('未找到可领取的奖励')
+      automator.clickPointRandom(collectPoint.centerX, collectPoint.centerY)
+      sleep(3000)
+      let actionBtns = null
+      let getRewards = null
+      let ignoreRewards = 0
+      do {
+        actionBtns = _widgetUtils.widgetGetAll('^去转化|去看看|逛一逛|去打卡|一键浇水$',3000)
+        ignoreRewards = 0
+        if (actionBtns && actionBtns.length > 0) {
+          let currentRunning = _commonFunctions.myCurrentPackage()
+          actionBtns.forEach(actionBtn => {
+            if (!_widgetUtils.widgetCheck('用活力值兑换.*', 1000)) {
+              return
+            }
+            
+            let actionTitle = 'unknown'
+            try {
+              actionTitle = actionBtn.parent().parent().child(1).child(0).text()
+            }catch(e){}
+            debugInfo(['执行: {} {}', actionTitle, actionBtn.text()])
+            if (actionTitle == 'unknown' || actionTitle.indexOf('能量雨')>=0
+              || actionTitle.indexOf('UC')>=0) {
+              debugInfo('跳过任务: '+actionTitle)
+              ignoreRewards++
+              return
+            }
+            actionBtn.click()
+            if (actionBtn.text() == '一键浇水') {
+              sleep(2000)
+              actionBtn = _widgetUtils.widgetGetOne('^送给TA$')
+              if (actionBtn) {
+                actionBtn.click()
+                sleep(2000)
+              }
+            } else if (actionBtn.text() == '去打卡') {
+              sleep(2000)
+            } else {
+              sleep(10000)
+              if (actionTitle.indexOf('视频')>=0 ||
+                  actionTitle.indexOf('淘宝')>=0 ||
+                  actionTitle.indexOf('闲鱼')>=0 ||
+                  actionTitle.indexOf('菜鸟')>=0 ||                  
+                  actionTitle.indexOf('天猫')>=0) {
+                sleep(10000)
+                if (actionTitle.indexOf('视频')>=0) {
+                  sleep(20000)
+                }
+              }
+              let limit = 5
+              do {
+                let getCurrentPkgName = currentPackage()
+                if (getCurrentPkgName != currentRunning) {
+                  _commonFunctions.minimize()
+                } else {
+                  automator.back()
+                }
+                sleep(1000)
+              } while (!_widgetUtils.widgetCheck('用活力值兑换.*', 1000) && --limit>0)
+            }
+          })
+        }
+        if (!_widgetUtils.widgetCheck('用活力值兑换.*', 1000)) {
+          break
+        }
+
+        getRewards = _widgetUtils.widgetGetAll('^(立即领取|领取)$',3000)
+        if (getRewards && getRewards.length > 0) {
+          logFloaty.pushLog('找到可领取的奖励数量：' + getRewards.length)
+          getRewards.forEach(getReward => {
+            getReward.click()
+            let confirmBtn = _widgetUtils.widgetGetOne('知道了', 500)
+            if (confirmBtn) {
+              automator.clickRandom(confirmBtn)
+              sleep(500)
+            }
+          })
+        } else {
+          logFloaty.pushLog('未找到可领取的奖励')
+        }
+      } while ((actionBtns && actionBtns.length>ignoreRewards) || (getRewards && getRewards.length > 0))
+      if ((!actionBtns || actionBtns.length<=ignoreRewards) && (!getRewards || getRewards.length == 0)) {
+        logFloaty.pushLog('已完成领取奖励')
+        _commonFunctions.setRewardCollected()
       }
-      _commonFunctions.setRewardCollected()
-      automator.click(_config.device_width * 0.2, _config.device_width * 0.3)
+
+      automator.clickPointRandom(_config.device_width * 0.2, _config.device_width * 0.3)
       sleep(200)
     } else {
       logFloaty.pushErrorLog('未找到奖励按钮')
@@ -799,25 +1054,10 @@ function Ant_forest () {
     let startWait = 1000
     if (!_config.is_cycle) {
       startApp()
-      // 首次启动等待久一点
-      sleep(1500)
     }
-    while (!(waitFlag = _widgetUtils.homePageWaiting()) && restartCount++ < 5) {
-      warnInfo('程序未启动，尝试再次唤醒')
-      automator.clickClose()
-      debugInfo('关闭H5')
-      if (restartCount >= 3) {
-        startWait += 200 * restartCount
-        home()
-      }
-      sleep(1000)
-      // 解锁并启动
-      unlocker.exec()
-      startApp(false)
-      sleep(startWait)
-    }
-    if (!waitFlag && restartCount >= 5) {
-      logInfo('退出脚本')
+    if (!_widgetUtils.homePageWaiting()) {
+      logInfo('退出脚本，5分钟后再试')
+      _commonFunctions.setUpAutoStart(5)
       exit()
     }
     logInfo('进入个人首页成功')
@@ -850,12 +1090,12 @@ function Ant_forest () {
       if (ball && ball.length > 0) {
         ball = ball[0]
         WarningFloaty.addRectangle('巡护球', [ball.x, ball.y, ball.width, ball.height])
-        automator.click(ball.centerX, ball.centerY)
+        automator.clickPointRandom(ball.centerX, ball.centerY)
         sleep(100)
         debugInfo('检查是否需要重新派遣')
         let redispatch = _widgetUtils.widgetGetOne('立即派遣|重新派遣', 1000)
         if (redispatch) {
-          automator.clickCenter(redispatch)
+          automator.clickRandom(redispatch)
           sleep(1000)
         }
       } else {
@@ -874,7 +1114,7 @@ function Ant_forest () {
       let bd = doubleEnergy.bounds()
       if (automator.checkCenterClickable(doubleEnergy)) {
         WarningFloaty.addRectangle('双倍能量', [bd.left, bd.right, bd.width(), bd.height()])
-        automator.clickCenter(doubleEnergy)
+        automator.clickRandom(doubleEnergy)
       } else {
         logFloaty.pushLog('双倍能量位置不可点击 当前不收取:' + [bd.left, bd.right, bd.width(), bd.height()])
       }
@@ -1088,51 +1328,50 @@ function Ant_forest () {
       this.setupEventListeners()
       this.readyForStart()
       _current_time = 0
-      startApp()
-      // 首次启动等待久一点
-      sleep(1500)
-      device.keepScreenOn()
-      while (true) {
-        _current_time++
-        _commonFunctions.showEnergyInfo(_current_time)
-        // 增加当天运行总次数
-        _commonFunctions.increaseRunTimes()
-        infoLog("========循环第" + _current_time + "次运行========")
-        showCollectSummaryFloaty()
-        try {
-          openAndWaitForPersonalHome()
-          collectOwn()
-          let runSuccess = true
-          if (!_config.collect_self_only) {
-            if (collectFriend() === false) {
-              // 收集失败，重新开始
-              _lost_someone = true
-              _current_time = _current_time == 0 ? 0 : _current_time - 1
-              _has_next = true
-              runSuccess = false
+      if (startApp()) {
+        device.keepScreenOn()
+        while (true) {
+          _current_time++
+          _commonFunctions.showEnergyInfo(_current_time)
+          // 增加当天运行总次数
+          _commonFunctions.increaseRunTimes()
+          infoLog("========循环第" + _current_time + "次运行========")
+          showCollectSummaryFloaty()
+          try {
+            openAndWaitForPersonalHome()
+            collectOwn()
+            let runSuccess = true
+            if (!_config.collect_self_only) {
+              if (collectFriend() === false) {
+                // 收集失败，重新开始
+                _lost_someone = true
+                _current_time = _current_time == 0 ? 0 : _current_time - 1
+                _has_next = true
+                runSuccess = false
+              }
             }
+            if (runSuccess) {
+              generateNext()
+              getPostEnergy(!_config.collect_self_only)
+            }
+          } catch (e) {
+            errorInfo('发生异常 [' + e + ']')
+            _current_time = _current_time == 0 ? 0 : _current_time - 1
+            _commonFunctions.printExceptionStack(e)
+            _has_next = true
+            _re_try = 0
           }
-          if (runSuccess) {
-            generateNext()
-            getPostEnergy(!_config.collect_self_only)
+          if (!_lost_someone && (_has_next === false || _re_try > 5)) {
+            break
           }
-        } catch (e) {
-          errorInfo('发生异常 [' + e + ']')
-          _current_time = _current_time == 0 ? 0 : _current_time - 1
-          _commonFunctions.printExceptionStack(e)
-          _has_next = true
-          _re_try = 0
+          logInfo('========本轮结束========')
         }
-        if (!_lost_someone && (_has_next === false || _re_try > 5)) {
-          break
-        }
-        logInfo('========本轮结束========')
+        device.cancelKeepingAwake()
+        this.endLoop()
+        this.endCollect()
+        // 返回最小化支付宝
+        _commonFunctions.minimize(_config.package_name)
       }
-      device.cancelKeepingAwake()
-      this.endLoop()
-      this.endCollect()
-      // 返回最小化支付宝
-      _commonFunctions.minimize(_config.package_name)
     }
   }
 
@@ -1275,7 +1514,8 @@ function Ant_forest () {
         executor = new CountdownExecutor()
       }
       executor.execute()
-    }
+    },
+    doSignUpForMagicSpecies: doSignUpForMagicSpecies
   }
 }
 

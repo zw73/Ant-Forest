@@ -118,7 +118,7 @@ const StrollScanner = function () {
       WarningFloaty.addRectangle('逛一逛按钮区域', region, '#00ff00')
       this.visualHelper.displayAndClearAll()
       // 直接点击中间位置
-      automator.click(region[0] + region[2] / 2, region[1] + region[3] / 2)
+      automator.clickPointRandom(region[0] + region[2] / 2, region[1] + region[3] / 2)
       sleep(300)
       hasNext = this.collectTargetFriend()
     }
@@ -172,7 +172,6 @@ StrollScanner.prototype.collectTargetFriend = function () {
   debugInfo('等待进入好友主页')
   let restartLoop = false
   let count = 1
-  ///sleep(1000)
   let alternativeFriendOrDone = 0
   if (auto.clearCache) {
     let start = new Date().getTime()
@@ -257,7 +256,6 @@ StrollScanner.prototype.collectTargetFriend = function () {
     this.isProtected = false
     this.isProtectDetectDone = true
   }
-  this.saveButtonRegionIfNeeded()
   if (this.first_check) {
     _widgetUtils.checkAndUseDuplicateCard()
     this.first_check = false
@@ -269,13 +267,14 @@ StrollScanner.prototype.collectTargetFriend = function () {
   } else {
     this.duplicateChecker.resetAll()
   }
+  this.saveButtonRegionIfNeeded()
   return result
 }
 
 StrollScanner.prototype.checkAndCollectRain = function () {
   let target = null
   auto.clearCache && auto.clearCache()
-  if ((target = _widgetUtils.widgetGetOne(_config.rain_entry_content || '.*能量雨.*', 500, true)) != null) {
+  if ((target = _widgetUtils.widgetGetOne(_config.rain_entry_content || '.*能量雨.*', 3000, true)) != null) {
     if (!_config.collect_rain_when_stroll) {
       debugInfo('找到能量雨开始标志，但是不需要执行能量雨')
       return true
@@ -289,7 +288,7 @@ StrollScanner.prototype.checkAndCollectRain = function () {
     target = _widgetUtils.widgetGetOne('去收取')
     if (target) {
       WarningFloaty.clearAll()
-      automator.clickCenter(target)
+      automator.clickRandom(target)
       sleep(1000)
       let source = fileUtils.getCurrentWorkPath() + '/unit/能量雨收集.js'
       runningQueueDispatcher.doAddRunningTask({source: source})
@@ -321,10 +320,11 @@ module.exports = StrollScanner
 // inner functions
 
 function refillStrollInfo(region) {
-  _config.stroll_button_left = parseInt(region[0])
-  _config.stroll_button_top = parseInt(region[1])
-  _config.stroll_button_width = parseInt(region[2])
-  _config.stroll_button_height = parseInt(region[3])
+  region = region.map(v => parseInt(v))
+  _config.stroll_button_left = region[0]
+  _config.stroll_button_top = region[1]
+  _config.stroll_button_width = region[2]
+  _config.stroll_button_height = region[3]
   // 用于执行保存数值
   _config.stroll_button_regenerate = true
 

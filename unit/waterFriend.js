@@ -25,7 +25,7 @@ function startApp () {
   floatyInstance.setFloatyInfo({ x: config.device_width / 2, y: config.device_height / 2 }, "查找是否有'打开'对话框")
   let confirm = widgetUtils.widgetGetOne(/^打开$/, 1000)
   if (confirm) {
-    automator.clickCenter(confirm)
+    automator.clickRandom(confirm)
   }
 }
 function openAndWaitForPersonalHome () {
@@ -79,7 +79,7 @@ function openFriendHome (inPersonalHome) {
 function openFriendHomeByWidget () {
   let target = widgetUtils.widgetGetOne(config.main_account_username)
   if (target) {
-    target.click()
+    automator.clickRandom(target)
   } else {
     floatyInstance.setFloatyText('查找主账号失败 跳过浇水')
     return false
@@ -90,7 +90,7 @@ function openFriendHomeByWidget () {
   while (!(openSuccess = widgetUtils.widgetWaiting(config.friend_load_more_content)) && limit-- > 0) {
     target = widgetUtils.widgetGetOne('重新加载')
     if (target) {
-      automator.clickCenter(target)
+      automator.clickRandom(target)
     }
   }
   return openSuccess
@@ -109,7 +109,7 @@ function openFriendHomeByUserId (count) {
   sleep(1000)
   let confirm = widgetUtils.widgetGetOne(/^打开$/, 3000)
   if (confirm) {
-    automator.clickCenter(confirm)
+    automator.clickRandom(confirm)
   }
   sleep(1000)
   floatyInstance.setFloatyText('查找是否存在点击展开好友')
@@ -165,20 +165,20 @@ function getSignReward () {
     let collect = OpenCvUtil.findByImageSimple(images.cvtColor(images.grayscale(screen), 'GRAY2BGRA'), images.fromBase64(config.image_config.sign_reward_icon))
     if (collect) {
       floatyInstance.setFloatyInfo({ x: collect.centerX(), y: collect.centerY() }, '点击奖励按钮')
-      automator.click(collect.centerX(), collect.centerY())
+      automator.clickPointRandom(collect.centerX(), collect.centerY())
       sleep(1000)
       let getRewards = widgetUtils.widgetGetAll('(立即)?领取')
       if (getRewards && getRewards.length > 0) {
         floatyInstance.setFloatyText('找到可领取的奖励数量：' + getRewards.length)
         getRewards.forEach(getReward => {
-          getReward.click()
+          automator.clickRandom(getReward)
           sleep(500)
         })
       } else {
         floatyInstance.setFloatyText('未找到可领取的奖励')
       }
       commonFunctions.setRewardCollected()
-      automator.click(config.device_width * 0.2, config.device_width * 0.3)
+      automator.clickPointRandom(config.device_width * 0.2, config.device_width * 0.3)
       sleep(200)
     } else {
       floatyInstance.setFloatyText('未找到奖励按钮')

@@ -51,7 +51,7 @@ function Patrol () {
     FloatyInstance.setFloatyInfo({ x: config.device_width / 2, y: config.device_height / 2 }, "查找是否有'打开'对话框")
     let confirm = widgetUtils.widgetGetOne(/^打开$/, 1000)
     if (confirm) {
-      automator.clickCenter(confirm)
+      automator.clickRandom(confirm)
     }
     if (openAlipayMultiLogin(reopen)) {
       return
@@ -72,7 +72,7 @@ function Patrol () {
       debugInfo(['已开启多设备自动登录检测，检查是否有 进入支付宝 按钮'])
       let entryBtn = widgetUtils.widgetGetOne(/^进入支付宝$/, 1000)
       if (entryBtn) {
-        automator.clickCenter(entryBtn)
+        automator.clickRandom(entryBtn)
         sleep(1000)
         startApp()
         return true

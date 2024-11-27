@@ -1,4 +1,11 @@
-let { config: _config } = require('../config.js')(runtime, global)
+/*
+ * @Author: TonyJiangWJ
+ * @Date: 2020-04-26 20:16:46
+ * @Last Modified by: TonyJiangWJ
+ * @Last Modified time: 2020-09-15 22:16:15
+ * @Description: 
+ */
+let { config: _config } = require('../config.js')(runtime, this)
 module.exports = function (obj) {
   this.__proto__ = obj
 
@@ -10,7 +17,7 @@ module.exports = function (obj) {
     for (let i = 0; i < password.length; i++) {
       let key_id = 'com.android.systemui:id/key' + password[i]
       if ((button = id(key_id).findOne(_config.timeout_findOne)) !== null) {
-        button.click()
+        automator.clickRandom(button)
       }
       sleep(100)
     }
