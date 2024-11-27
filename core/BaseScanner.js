@@ -3,7 +3,6 @@
  * @Date: 2019-12-18 14:17:09
  * @Last Modified by: TonyJiangWJ
  * @Last Modified time: 2024-11-22 10:12:57
- * @Last Modified time: 2024-11-22 10:12:57
  * @Description: 能量收集和扫描基类，负责通用方法和执行能量球收集
  */
 importClass(java.util.concurrent.LinkedBlockingQueue)
@@ -196,8 +195,6 @@ const BaseScanner = function () {
       haveValidBalls = false
       WarningFloaty.clearAll()
       let screen = _commonFunctions.checkCaptureScreenPermission()
-      // 等待控件加载 否则截图可能存在载入动画
-      _widgetUtils.widgetGetOne(_config.friend_load_more_content || '展开好友动态', 500)
       // 等待控件加载 否则截图可能存在载入动画
       _widgetUtils.widgetGetOne(_config.friend_load_more_content || '展开好友动态', 500)
       if (screen) {
@@ -454,9 +451,6 @@ const BaseScanner = function () {
         if (this.is_own) {
           collectableList = this.filterCollectableList(collectableList)
         }
-        if (this.is_own) {
-          collectableList = this.filterCollectableList(collectableList)
-        }
         if (collectableList.length > 0) {
           haveValidBalls = true
           if (!this.awaitForCollectable()) {
@@ -492,34 +486,6 @@ const BaseScanner = function () {
       WarningFloaty.clearAll()
     } while (repeat)
     debugInfo(['收集能量球总耗时：{}ms', new Date().getTime() - start])
-  }
-
-  /**
-   * 过滤自身能量球 筛选能量球所在范围内的球
-   *
-   * @param {*} collectableList 
-   * @returns 
-   */
-  this.filterCollectableList = function (collectableList) {
-    return collectableList.filter(c => {
-      // 过滤非能量球所在范围内的球
-      let ball = {
-        x: c.x + c.width / 2,
-        y: c.y + c.height / 2,
-        radius: c.width / 2,
-      }
-      let radius = ball.radius
-      if (
-        // 可能是左上角的活动图标 或者 识别到了其他范围的球
-        ball.y < _config.tree_collect_top - (this.is_own ? cvt(80) : 0) || ball.y > _config.tree_collect_top + _config.tree_collect_height
-        || ball.x < _config.tree_collect_left || ball.x > _config.tree_collect_left + _config.tree_collect_width
-        // 取值范围就不正确的无效球，避免后续报错，理论上不会进来，除非配置有误
-        || ball.x - radius <= radius || ball.x + radius >= _config.device_width - radius || ball.y - radius <= 0 || ball.y + 1.6 * radius >= _config.device_height) {
-        debugInfo(['球：[{},{} r{}]不在能量球所在区域范围内', ball.x, ball.y, ball.radius])
-        return false
-      }
-      return true
-    })
   }
 
   /**
@@ -939,14 +905,12 @@ const BaseScanner = function () {
    */
   this.protectInfoDetect = function (name) {
     let loadMoreButton = _widgetUtils.widgetGetOne(_config.friend_load_more_content || '展开好友动态', 1000)
-    let loadMoreButton = _widgetUtils.widgetGetOne(_config.friend_load_more_content || '展开好友动态', 1000)
     if (!this.is_own && _config.use_one_key_collect && _config.image_config.one_key_collect) {
       debugInfo('一键收模式下不进行保护罩校验')
       return
     }
     this.isProtectDetectDone = false
     this.isProtected = false
-
 
     if (loadMoreButton) {
       let limit = 3
@@ -959,13 +923,11 @@ const BaseScanner = function () {
         automator.clickRandom(loadMoreButton)
         sleep(100)
         loadMoreButton = _widgetUtils.widgetGetOne(_config.friend_load_more_content || '展开好友动态', 400)
-        loadMoreButton = _widgetUtils.widgetGetOne(_config.friend_load_more_content || '展开好友动态', 400)
       }
       if (loadMoreButton) {
         warnInfo(['点击展开好友失败 {}', loadMoreButton.bounds()])
       }
     } else {
-      debugInfo(['未找到加载更多按钮:「{}」', _config.friend_load_more_content || '展开好友动态'])
       debugInfo(['未找到加载更多按钮:「{}」', _config.friend_load_more_content || '展开好友动态'])
       return false
     }
@@ -1185,10 +1147,6 @@ const BaseScanner = function () {
     if (_config.save_yolo_train_data) {
       screen = images.copy(_commonFunctions.checkCaptureScreenPermission(), true)
     }
-    let screen = null
-    if (_config.save_yolo_train_data) {
-      screen = images.copy(_commonFunctions.checkCaptureScreenPermission(), true)
-    }
     this.collectEnergy()
     if (this.isProtected) {
       debugInfo(['异步判定已使用了保护罩，跳过后续操作 name: {}', obj.name])
@@ -1367,7 +1325,6 @@ const BaseScanner = function () {
     YoloTrainHelper.saveImage(screen, '校验是否有种树奖励')
     let clicked = false
     if (YoloDetection.enabled) {
-      let result = YoloDetection.forward(screen, { confidence: 0.6, filter: (result) => result.label == 'gift' })
       let result = YoloDetection.forward(screen, { confidence: 0.6, filter: (result) => result.label == 'gift' })
       if (result && result.length > 0) {
         result = result[0]

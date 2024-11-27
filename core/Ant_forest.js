@@ -3,7 +3,6 @@
  * @Date: 2019-01-31 22:58:00
  * @Last Modified by: TonyJiangWJ
  * @Last Modified time: 2024-11-21 15:10:57
- * @Last Modified time: 2024-11-21 15:10:57
  * @Description: 
  */
 let { config: _config, storage_name: _storage_name } = require('../config.js')(runtime, global)
@@ -61,7 +60,6 @@ function Ant_forest () {
       warnInfo(['当前屏幕为横向，为避免出现问题，回到桌面再执行'])
       home()
     }
-    _commonFunctions.backHomeIfInVideoPackage()
     _commonFunctions.backHomeIfInVideoPackage()
     if (_config.start_alipay_by_url) {
       debugInfo(['使用app.openUrl方式打开森林，如果无法打开请去配置中关闭'])
@@ -511,7 +509,6 @@ function Ant_forest () {
       getSignReward()
     }
     _post_energy > 0 && AntForestDao.saveMyEnergy(_post_energy)
-    _commonFunctions.showEnergyInfo(null, _has_next ? getRealSleepTime(_min_countdown) : null)
     _commonFunctions.showEnergyInfo(null, _has_next ? getRealSleepTime(_min_countdown) : null)
     let energyInfo = _commonFunctions.getTodaysRuntimeStorage('energy')
     if (!_has_next) {

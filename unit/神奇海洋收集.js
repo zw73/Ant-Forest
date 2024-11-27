@@ -169,7 +169,6 @@ if (executeByTimeTask || executeArguments.executeByDispatcher) {
         checkNext()
         findTrashs(null)
         threads.start(function () { sleep(500); exit() })
-        threads.start(function () { sleep(500); exit() })
       }
     }, {
       id: 'find_trashs',
@@ -379,7 +378,6 @@ function startApp(reopen) {
   
   logInfo('准备打开神奇海洋')
   commonFunctions.backHomeIfInVideoPackage()
-  commonFunctions.backHomeIfInVideoPackage()
   app.startActivity({
     action: 'VIEW',
     data: 'alipays://platformapi/startapp?appId=2021003115672468',
@@ -535,7 +533,6 @@ function checkNext (tryTime, checkOnly) {
       warnInfo('当前版本AutoJS不支持本地OCR，直接设置两小时后的定时任务，此方式并不准确请手动设置实际定时时间，每天间隔两小时的定时任务 并注释下面自动设置定时任务的代码')
       commonFunctions.setUpAutoStart(120)
       NotificationHelper.createNotification('神奇海洋收集两小时后执行', '当前版本不支持OCR识别，直接设置两小时后执行，执行时间：' + buildNextTime(120), NOTIFICATION_ID)
-      NotificationHelper.createNotification('神奇海洋收集两小时后执行', '当前版本不支持OCR识别，直接设置两小时后执行，执行时间：' + buildNextTime(120), NOTIFICATION_ID)
     }
     return
   }
@@ -549,9 +546,6 @@ function checkNext (tryTime, checkOnly) {
     debugInfo(['ocr识别区域：{}', JSON.stringify(ocrRegion)])
     screen = images.inRange(images.grayscale(screen), '#BEBEBE', '#ffffff')
     let clip = images.clip(screen, ocrRegion[0], ocrRegion[1], ocrRegion[2], ocrRegion[3])
-    if (config.develop_mode) {
-      debugForDev(['图片信息：data:image/png;base64,{}', images.toBase64(clip)])
-    }
     if (config.develop_mode) {
       debugForDev(['图片信息：data:image/png;base64,{}', images.toBase64(clip)])
     }
@@ -569,7 +563,6 @@ function checkNext (tryTime, checkOnly) {
         if (!checkOnly) {
           commonFunctions.setUpAutoStart(remainMins + 1)
           NotificationHelper.createNotification('神奇海洋收集，' + (remainMins + 1) + '分钟后执行', 'OCR识别成功，下次执行时间：' + buildNextTime(remainMins + 1), NOTIFICATION_ID)
-          NotificationHelper.createNotification('神奇海洋收集，' + (remainMins + 1) + '分钟后执行', 'OCR识别成功，下次执行时间：' + buildNextTime(remainMins + 1), NOTIFICATION_ID)
         }
         recognizeFailed = false
       }
@@ -584,18 +577,11 @@ function checkNext (tryTime, checkOnly) {
       } else {
         commonFunctions.setUpAutoStart(120)
         NotificationHelper.createNotification('神奇海洋收集，两小时后执行', 'OCR识别失败，直接设置两小时后的定时任务，执行时间：' + buildNextTime(120), NOTIFICATION_ID)
-        NotificationHelper.createNotification('神奇海洋收集，两小时后执行', 'OCR识别失败，直接设置两小时后的定时任务，执行时间：' + buildNextTime(120), NOTIFICATION_ID)
       }
     }
   }
   warningFloaty.enableTip()
 
-}
-
-function buildNextTime (mins) {
-  let now = new Date()
-  let next = new Date(now.getTime() + mins * 60 * 1000)
-  return formatDate(next, 'HH:mm:ss')
 }
 
 function buildNextTime (mins) {
