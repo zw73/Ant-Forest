@@ -25,6 +25,7 @@ let StrollScanner = require('./StrollScanner.js')
 let FriendListScanner = require('./FriendListScanner.js')
 let BaseScanner = require('./BaseScanner.js')
 let localOcrUtil = require('../lib/LocalOcrUtil.js')
+let taskUtil = require('../lib/TaskUtil.js')
 
 function Ant_forest () {
   let _base_scanner = new BaseScanner()
@@ -132,12 +133,31 @@ function Ant_forest () {
       debugInfo(['已开启多设备自动登录检测，检查是否有 进入支付宝 按钮'])
       let entryBtn = _widgetUtils.widgetGetOne(/^进入支付宝$/, 1000)
       if (entryBtn) {
-        FloatyInstance.setFloatyText('其他设备正在登录，等待5分钟后进入')
-        _commonFunctions.waitForAction(300, '等待进入支付宝')
-        unlocker && unlocker.exec()
-        automator.clickRandom(entryBtn)
-        sleep(1000)
-        return true
+        let storage = storages.create("alipay_multi_login")
+        let multiLoginFlag = storage.get("flag")
+        let multiLoginTime = storage.get("timestamp")
+        let currentTime = new Date().getTime()
+        let waitMin = 10
+        if (!multiLoginFlag) {
+          FloatyInstance.setFloatyText('检测到其他设备登录，' + waitMin + '分钟后重试')
+          debugInfo('检测到其他设备登录,记录时间并设置10分钟后重试')
+          storage.put("flag", true)
+          storage.put("timestamp", currentTime)
+          _commonFunctions.setUpAutoStart(waitMin)
+          exit()
+        } else if (currentTime - multiLoginTime >= waitMin * 60 * 1000) {
+          FloatyInstance.setFloatyText('等待时间已到，点击进入支付宝')
+          debugInfo('已等待10分钟,点击进入支付宝')
+          automator.clickRandom(entryBtn)
+          sleep(1000)
+          return true
+        } else {
+          let remainMinutes = Math.ceil((waitMin * 60 * 1000 - (currentTime - multiLoginTime)) / (60 * 1000))
+          FloatyInstance.setFloatyText('等待时间未到，还需等待' + remainMinutes + '分钟')
+          debugInfo('等待时间未到10分钟,设置剩余时间后重试')
+          _commonFunctions.setUpAutoStart(remainMinutes)
+          exit()
+        }
       } else {
         debugInfo(['未找到 进入支付宝 按钮'])
       }
@@ -628,27 +648,27 @@ function Ant_forest () {
         }
         trySignUpForMagicSpeciesByStroll()
       }
-      let backToForest = _widgetUtils.widgetGetOne(_config.stroll_end_ui_content || /^返回(我的|蚂蚁)森林>?|去蚂蚁森林.*$/, 1000)
-      if (backToForest) {
-        if (!backToForest.click()) {
-          warnInfo('无障碍点击失败，尝试坐标点击')
-          randomScrollDown()
-          backToForest = _widgetUtils.widgetGetOne(_config.stroll_end_ui_content || /^返回(我的|蚂蚁)森林>?|去蚂蚁森林.*$/, 1000)
-          backToForest && automator.clickRandom(backToForest)
-        }
-      } else {
-        automator.back()
-      }
-      sleep(5000)
+      // let backToForest = _widgetUtils.widgetGetOne(_config.stroll_end_ui_content || /^返回(我的|蚂蚁)森林>?|去蚂蚁森林.*$/, 1000)
+      // if (backToForest) {
+      //   if (!backToForest.click()) {
+      //     warnInfo('无障碍点击失败，尝试坐标点击')
+      //     randomScrollDown()
+      //     backToForest = _widgetUtils.widgetGetOne(_config.stroll_end_ui_content || /^返回(我的|蚂蚁)森林>?|去蚂蚁森林.*$/, 1000)
+      //     backToForest && automator.clickRandom(backToForest)
+      //   }
+      // } else {
+      //   automator.back()
+      // }
+      // sleep(5000)
       let tryCount = 1
-      while (!_widgetUtils.homePageWaiting()) {
+      do {
         if (tryCount++ > 3) {
-          return false
+          warnInfo('逛一逛结束后未正确回到首页，尝试重新打开')
+          startApp()
         }
-        warnInfo('逛一逛结束后未正确回到首页，尝试重新打开')
-        startApp()
+        automator.back()
         sleep(1000)
-      }
+      } while (!_widgetUtils.homePageWaiting())
       _post_energy = getCurrentEnergy(true)
       logInfo(['逛一逛结束 当前能量：{}', _post_energy])
       debugInfo(['collect any?: {}', runResult.collectAny])
@@ -906,16 +926,12 @@ function Ant_forest () {
     }
   }
 
-  const getSignReward = function () {
-    if (_commonFunctions.checkRewardCollected()) {
-      debugInfo('今日已经领取过奖励 跳过领取')
-      return
-    }
-    logFloaty.pushLog('准备获取每日奖励')
+  const openTaskWindow = function () {
+    logFloaty.pushLog('准备打开奖励界面')
     let screen = _commonFunctions.checkCaptureScreenPermission()
     if (!screen) {
       logFloaty.pushErrorLog('获取截图失败')
-      return
+      return false
     }
     YoloTrainHelper.saveImage(screen, '识别每日奖励')
     let collectPoint = null
@@ -948,94 +964,109 @@ function Ant_forest () {
     if (collectPoint) {
       automator.clickPointRandom(collectPoint.centerX, collectPoint.centerY)
       sleep(3000)
-      let actionBtns = null
-      let getRewards = null
-      let ignoreRewards = 0
-      do {
-        actionBtns = _widgetUtils.widgetGetAll('^去转化|去看看|逛一逛|去打卡|一键浇水$',3000)
-        ignoreRewards = 0
-        if (actionBtns && actionBtns.length > 0) {
-          let currentRunning = _commonFunctions.myCurrentPackage()
-          actionBtns.forEach(actionBtn => {
-            if (!_widgetUtils.widgetCheck('用活力值兑换.*', 1000)) {
-              return
-            }
-            
-            let actionTitle = 'unknown'
-            try {
-              actionTitle = actionBtn.parent().parent().child(1).child(0).text()
-            }catch(e){}
-            debugInfo(['执行: {} {}', actionTitle, actionBtn.text()])
-            if (actionTitle == 'unknown' || actionTitle.indexOf('能量雨')>=0
-              || actionTitle.indexOf('UC')>=0) {
-              debugInfo('跳过任务: '+actionTitle)
-              ignoreRewards++
-              return
-            }
-            actionBtn.click()
-            if (actionBtn.text() == '一键浇水') {
-              sleep(2000)
-              actionBtn = _widgetUtils.widgetGetOne('^送给TA$')
-              if (actionBtn) {
-                actionBtn.click()
-                sleep(2000)
-              }
-            } else if (actionBtn.text() == '去打卡') {
-              sleep(2000)
-            } else {
-              sleep(10000)
-              if (actionTitle.indexOf('视频')>=0 ||
-                  actionTitle.indexOf('淘宝')>=0 ||
-                  actionTitle.indexOf('闲鱼')>=0 ||
-                  actionTitle.indexOf('菜鸟')>=0 ||                  
-                  actionTitle.indexOf('天猫')>=0) {
-                sleep(10000)
-                if (actionTitle.indexOf('视频')>=0) {
-                  sleep(20000)
-                }
-              }
-              let limit = 5
-              do {
-                let getCurrentPkgName = currentPackage()
-                if (getCurrentPkgName != currentRunning) {
-                  _commonFunctions.minimize()
-                } else {
-                  automator.back()
-                }
-                sleep(1000)
-              } while (!_widgetUtils.widgetCheck('用活力值兑换.*', 1000) && --limit>0)
-            }
-          })
-        }
-        if (!_widgetUtils.widgetCheck('用活力值兑换.*', 1000)) {
-          break
-        }
+      return isInTaskUI()
+    }
+    return false
+  }
+  
+  const getSignReward = function () {
+    if (_commonFunctions.checkRewardCollected()) {
+      // debugInfo('今日已经领取过奖励 跳过领取')
+      // return
+    }
+    logFloaty.pushLog('准备获取每日奖励')
+    
+    if (!openTaskWindow()) {
+      logFloaty.pushLog('打开奖励界面失败')
+      return
+    }
 
-        getRewards = _widgetUtils.widgetGetAll('^(立即领取|领取)$',3000)
-        if (getRewards && getRewards.length > 0) {
-          logFloaty.pushLog('找到可领取的奖励数量：' + getRewards.length)
-          getRewards.forEach(getReward => {
-            getReward.click()
-            let confirmBtn = _widgetUtils.widgetGetOne('知道了', 500)
-            if (confirmBtn) {
-              automator.clickRandom(confirmBtn)
-              sleep(500)
-            }
-          })
-        } else {
-          logFloaty.pushLog('未找到可领取的奖励')
+    let hasNewTask = false
+    let hasNewReward = false
+
+    let taskContext = {
+      startApp: startApp,
+      openTaskWindow: openTaskWindow,
+      isInProjectUI: isInProjectUI,
+      isInTaskUI: isInTaskUI,
+      waterFriend: function (titleObj, entryBtn) {
+        let result = false
+        if (entryBtn) {
+          logFloaty.pushLog('等待进入 '+titleObj.text())
+          entryBtn.click()
+          sleep(3000)
+      
+          let waterBtn = _widgetUtils.widgetGetOne('^送给TA$')
+          if (waterBtn) {
+            waterBtn.click()
+            sleep(2000)
+            result = true
+          }
         }
-      } while ((actionBtns && actionBtns.length>ignoreRewards) || (getRewards && getRewards.length > 0))
-      if ((!actionBtns || actionBtns.length<=ignoreRewards) && (!getRewards || getRewards.length == 0)) {
-        logFloaty.pushLog('已完成领取奖励')
-        _commonFunctions.setRewardCollected()
+        return result
+      }
+    }
+
+    let taskInfos = [
+      {
+        btnRegex: '^去转化|去看看|逛一逛|去打卡|去完成$',
+        tasks: [
+          // 禁用能量雨任务
+          { taskType: 'disable', titleRegex: '.*能量雨.*' },
+          // 视频任务
+          { taskType: 'browse', titleRegex: '.*视频.*', timeout: 20, needScroll: false },
+        ]
+      },
+      {
+        btnRegex: '^一键浇水$',
+        tasks: [
+          { taskType: 'waterFriend', titleRegex: '.*', timeout: 3 }
+        ]
+      }
+    ]
+
+    taskUtil.initProject(taskContext, 'ant_forest')
+    do {
+      // 执行任务
+      hasNewTask = taskUtil.doTasks(taskInfos)
+      
+      if (!_widgetUtils.widgetCheck('用活力值兑换.*', 1000)) {
+        break
       }
 
-      automator.clickPointRandom(_config.device_width * 0.2, _config.device_width * 0.3)
-      sleep(200)
-    } else {
-      logFloaty.pushErrorLog('未找到奖励按钮')
-    }
+      // 领取奖励
+      let getRewards = _widgetUtils.widgetGetAll('^(立即领取|领取)$',3000)
+      if (getRewards && getRewards.length > 0) {
+        logFloaty.pushLog('找到可领取的奖励数量：' + getRewards.length)
+        getRewards.forEach(getReward => {
+          getReward.click()
+          let confirmBtn = _widgetUtils.widgetGetOne('知道了', 500)
+          if (confirmBtn) {
+            automator.clickRandom(confirmBtn)
+            sleep(500)
+          }
+        })
+        sleep(3000)
+        hasNewReward = true
+      } else {
+        logFloaty.pushLog('未找到可领取的奖励')
+        hasNewReward = false
+      }
+    } while (hasNewTask || hasNewReward)
+
+    logFloaty.pushLog('已完成领取奖励')
+    _commonFunctions.setRewardCollected()
+
+    automator.clickPointRandom(_config.device_width * 0.2, _config.device_width * 0.3)
+    sleep(200)
+  }
+
+  const isInProjectUI = function (projectCode, timeout) {
+    return _widgetUtils.homePageWaiting()
+  }
+
+  const isInTaskUI = function (projectCode, timeout) {
+    return _widgetUtils.widgetCheck('用活力值兑换.*', timeout || 1000)
   }
 
   /***********************

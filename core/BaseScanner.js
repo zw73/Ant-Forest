@@ -464,6 +464,10 @@ const BaseScanner = function () {
               c.height
             ])
             automator.clickPointRandom(c.x + c.width / 2, c.y + c.height / 2)
+            if (_config._double_click_card_used) {
+              sleep(1000)
+              automator.clickPointRandom(c.x + c.width / 2, c.y + c.height / 2)
+            }
             self.collect_count++
             self.randomSleep()
             if (c.label == 'waterBall') {
@@ -813,6 +817,12 @@ const BaseScanner = function () {
               b.y + this.getRandomOffset(b)
             )
             shouldWaitForWatering = true
+          } else if (_config.double_click_card) {
+            sleep(1000)
+            automator.clickPointRandom(
+              b.x + this.getRandomOffset(b),
+              b.y + this.getRandomOffset(b)
+            )
           }
           if (idx < clickPoints.length - 1) {
             this.randomSleep()

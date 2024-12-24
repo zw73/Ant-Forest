@@ -1,4 +1,3 @@
-
 let { config } = require('../config.js')(runtime, global)
 let singletonRequire = require('../lib/SingletonRequirer.js')(runtime, global)
 let commonFunctions = singletonRequire('CommonFunction')
@@ -72,10 +71,31 @@ function Patrol () {
       debugInfo(['已开启多设备自动登录检测，检查是否有 进入支付宝 按钮'])
       let entryBtn = widgetUtils.widgetGetOne(/^进入支付宝$/, 1000)
       if (entryBtn) {
-        automator.clickRandom(entryBtn)
-        sleep(1000)
-        startApp()
-        return true
+        let storage = storages.create("alipay_multi_login")
+        let multiLoginFlag = storage.get("flag")
+        let multiLoginTime = storage.get("timestamp") 
+        let currentTime = new Date().getTime()
+        let waitMin = 10
+        if (!multiLoginFlag) {
+          debugInfo('检测到其他设备登录,记录时间并设置10分钟后重试')
+          FloatyInstance.setFloatyText('检测到其他设备登录，将在10分钟后重试')
+          storage.put("flag", true)
+          storage.put("timestamp", currentTime)
+          commonFunctions.setUpAutoStart(waitMin)
+          exit()
+        } else if (currentTime - multiLoginTime >= waitMin * 60 * 1000) {
+          debugInfo('已等待10分钟,点击进入支付宝')
+          FloatyInstance.setFloatyText('等待完成，正在重新登录支付宝')
+          automator.clickRandom(entryBtn)
+          sleep(1000)
+          return true
+        } else {
+          let remainMinutes = Math.ceil((waitMin * 60 * 1000 - (currentTime - multiLoginTime)) / (60 * 1000))
+          debugInfo('等待时间未到10分钟,设置剩余时间后重试')
+          FloatyInstance.setFloatyText('需要等待' + remainMinutes + '分钟后重试')
+          commonFunctions.setUpAutoStart(remainMinutes)
+          exit()
+        }
       } else {
         debugInfo(['未找到 进入支付宝 按钮'])
       }

@@ -21,6 +21,8 @@ let warningFloaty = singletonRequire('WarningFloaty')
 let NotificationHelper = singletonRequire('Notification')
 let ocrUtil = require('../lib/LocalOcrUtil.js')
 let formatDate = require('../lib/DateUtil.js')
+let taskUtil = require('../lib/TaskUtil.js')
+
 // 神奇海洋专用通知id
 const NOTIFICATION_ID = config.notificationId * 10 + 2
 infoLog(['当前使用的OCR类型为：{} 是否启用：{}', ocrUtil.type, ocrUtil.enabled])
@@ -356,12 +358,31 @@ function openAlipayMultiLogin (reopen) {
     debugInfo(['已开启多设备自动登录检测，检查是否有 进入支付宝 按钮'])
     let entryBtn = widgetUtils.widgetGetOne(/^进入支付宝$/, 1000)
     if (entryBtn) {
-      floatyInstance.setFloatyText('其他设备正在登录，等待5分钟后进入')
-      commonFunctions.waitForAction(300, '等待进入支付宝')
-      unlocker && unlocker.exec()
-      automator.clickRandom(entryBtn)
-      sleep(1000)
-      return true
+      let storage = storages.create("alipay_multi_login")
+      let multiLoginFlag = storage.get("flag")
+      let multiLoginTime = storage.get("timestamp")
+      let currentTime = new Date().getTime()
+      let waitMin = 10
+      if (!multiLoginFlag) {
+        floatyInstance.setFloatyText('检测到其他设备登录，' + waitMin + '分钟后重试')
+        debugInfo('检测到其他设备登录,记录时间并设置10分钟后重试')
+        storage.put("flag", true)
+        storage.put("timestamp", currentTime)
+        commonFunctions.setUpAutoStart(waitMin)
+        exit()
+      } else if (currentTime - multiLoginTime >= waitMin * 60 * 1000) {
+        floatyInstance.setFloatyText('等待时间已到，点击进入支付宝')
+        debugInfo('已等待10分钟,点击进入支付宝')
+        automator.clickRandom(entryBtn)
+        sleep(1000)
+        return true
+      } else {
+        let remainMinutes = Math.ceil((waitMin * 60 * 1000 - (currentTime - multiLoginTime)) / (60 * 1000))
+        floatyInstance.setFloatyText('等待时间未到，还需等待' + remainMinutes + '分钟')
+        debugInfo('等待时间未到10分钟,设置剩余时间后重试')
+        commonFunctions.setUpAutoStart(remainMinutes)
+        exit()
+      }
     } else {
       debugInfo(['未找到 进入支付宝 按钮'])
     }
@@ -405,7 +426,7 @@ function startApp(reopen) {
       sleep(1000)
     }
 
-    if (isInProjectUI(1000)) {
+    if (isInProjectUI('MiracleOcean', 1000)) {
       floatyInstance.setFloatyText('已进入神奇海洋')
       return true
     }
@@ -590,7 +611,6 @@ function buildNextTime (mins) {
   return formatDate(next, 'HH:mm:ss')
 }
 
-
 function getOcrRegionByYolo () {
   if (!YoloDetectionUtil.enabled) {
     return null
@@ -654,7 +674,7 @@ function findStrollBtn () {
     logFloaty.pushLog('OCR查找找拼图')
     let bounds = ocrUtil.recognizeWithBounds(screen, [config.device_width / 2, config.device_height / 2, config.device_width / 2, config.device_height / 2], '找拼图')
     if (bounds && bounds.length > 0) {
-      bounds = btn[0].bounds
+      bounds = bounds[0].bounds
       return { x: bounds.centerX(), y: bounds.centerY() }
     }
   }
@@ -672,27 +692,38 @@ function waitForStrollBtn () {
 /**
  * 打开任务窗口
  */
-function openTaskWindow () {
+function openTaskWindow (projectCode) {
   if (!YoloDetectionUtil.enabled) {
     logFloaty.pushErrorLog('领奖励需要YOLO支持')
     warnInfo(['领取奖励功能需要开启YOLO'], true)
     return false
   }
   
-  let reward = YoloDetectionUtil.forward(commonFunctions.captureScreen(), { labelRegex: 'reward', confidence: config.yolo_confidence || 0.7 })
+  let screen = commonFunctions.captureScreen()
+  let reward = YoloDetectionUtil.forward(screen, { labelRegex: 'reward', confidence: config.yolo_confidence || 0.7 })
   if (reward && reward.length > 0) {
     reward = reward[0]
     floatyInstance.setFloatyInfo({ x: reward.centerX, y: reward.centerY }, '领奖励')
+  } else {
+    logFloaty.pushLog('OCR查找领奖励')
+    let bounds = ocrUtil.recognizeWithBounds(screen, [config.device_width / 2, config.device_height / 2, config.device_width / 2, config.device_height / 2], '奖励')
+    if (bounds && bounds.length > 0) {
+      bounds = bounds[0].bounds
+      reward = { centerX: bounds.centerX(), centerY: bounds.centerY() }
+    }
+  }
+  if (reward) {
     clickPoint(reward.centerX, reward.centerY)
     sleep(1000)
   }
-  return isInTaskUI()
+  
+  return isInTaskUI(projectCode)
 }
 
 /**
  * 获取当前界面是否在项目界面
  */
-function isInProjectUI (timeout) {
+function isInProjectUI (projectCode, timeout) {
   timeout = timeout || 2000
   return widgetUtils.idWaiting('ocean-info', '神奇海洋', timeout) || widgetUtils.idWaiting('ocean-fish-cnt-percent', '神奇海洋', timeout)
 }
@@ -700,45 +731,9 @@ function isInProjectUI (timeout) {
 /**
  * 获取当前界面是否在任务界面
  */
-function isInTaskUI(timeout) {
+function isInTaskUI(projectCode, timeout) {
   timeout = timeout || 2000
   return widgetUtils.widgetWaiting('邀请.*好友一起修复海洋', '任务列表', timeout)
-}
-
-function backToTaskUI() {
-  warnInfo('检查是否在任务界面，不在的话返回，尝试两次')
-  let backResult = false
-  let waitCount = 2
-  while (!(backResult=isInTaskUI(5000)) && waitCount-->0) {
-    automator.back()
-    sleep(1000)
-  }
-
-  if (backResult) {
-    sleep(2000)
-    return true
-  }
-  
-  warnInfo(['返回失败，重新尝试打开任务界面'])
-  if (!isInProjectUI()) {
-    warnInfo(['不在项目界面，重新尝试打开项目'])
-    startApp()
-  }
-
-  if (!isInProjectUI()) {
-    warnInfo(['打开项目失败，5分钟后重新尝试'])
-    commonFunctions.setUpAutoStart(5)
-    return false
-  }
-
-  if(!isInTaskUI()) {
-    if (!openTaskWindow()) {
-      warnInfo(['打开任务界面失败，5分钟后重新尝试'])
-      commonFunctions.setUpAutoStart(5)
-      return false
-    }
-  }
-  return true
 }
 
 /**
@@ -811,199 +806,6 @@ function answerQuestion(titleObj,entryBtn) {
   return !!result
 }
 
-function doBrowseTask(titleText, entryBtn, timeout, needScroll) {
-  if (!entryBtn) {
-    logFloaty.pushLog('无入口按钮，跳过执行：'+titleText)
-    return false
-  }
-  titleText = titleText || entryBtn.text()
-  timeout = timeout || 15
-
-  entryBtn.click()
-  sleep(1000)
-  logFloaty.pushLog('等待进入 '+titleText)
-  sleep(2000);
-
-  if (timeout) {
-    logFloaty.pushLog(titleText+' 等待倒计时结束')
-    let limit = timeout
-    while (limit-- > 0) {
-      sleep(1000)
-      logFloaty.replaceLastLog(titleText+' 等待倒计时结束 剩余：' + limit + 's')
-      if (limit % 2 == 0 && needScroll) {
-        automator.randomScrollDown()
-      }
-    }
-  } else {
-    sleep(3000)
-    logFloaty.pushLog('啥也不用干 直接返回')
-  }
-  return backToTaskUI()
-}
-
-function doVisitAppTask(titleText,entryBtn,timeout,needScroll) {
-  if (!commonFunctions.checkAppInstalledByName(titleText)) {
-    logFloaty.pushLog('未安装应用，跳过执行：'+titleText)
-    return false
-  }
-  
-  currentRunning = commonFunctions.myCurrentPackage()
-  debugInfo('当前包名：'+currentRunning)
-  entryBtn.click()
-
-  logFloaty.pushLog('等待进入 '+titleText)
-  let waitCount = 10
-  while (currentRunning == commonFunctions.myCurrentPackage() && waitCount-- > 0) {
-    sleep(1000)
-  }
-  if (currentRunning == commonFunctions.myCurrentPackage()) {
-    logFloaty.pushLog('进入失败，返回')
-    waitCount = 2
-    while (!isInTaskUI() && waitCount-->0) {
-      automator.back()
-      sleep(1000)
-    }
-    
-    if (!isInTaskUI()) {
-      warnInfo(['返回失败，5分钟后重新尝试'])
-      commonFunctions.setUpAutoStart(5)
-      return false
-    }
-  }
-  //已进入目标应用，等待加载完成
-  sleep(5000)
-
-  //根据需要等待一段时间进行浏览
-  if (timeout) {
-    logFloaty.pushLog(titleText+' 等待倒计时结束')
-    let limit = timeout / 2
-    while (limit-- > 0) {
-      //检查是否有弹窗
-      let popupCancelBtn = widgetUtils.widgetGetOne("^取消|忽略|关闭|拒绝$", 1000, false, false, m => m.boundsInside(0,  config.device_height * 0.2, config.device_width, config.device_height))
-      if (popupCancelBtn) {
-        debugInfo('找到了弹窗取消按钮')
-        automator.clickRandom(popupCancelBtn)
-        sleep(1000)
-      }
-      //检查是否有验证窗口，有则等待直到消失
-      commonFunctions.waitForTBVerify()
-
-      sleep(1000)
-      logFloaty.replaceLastLog(titleText+' 等待倒计时结束 剩余：' + limit + 's')
-      if (limit % 2 == 0 && needScroll) {
-        automator.randomScrollDown()
-      }
-    }
-  } else {
-    sleep(3000)
-    logFloaty.pushLog('啥也不用干 直接返回')
-  }
-  commonFunctions.minimize()
-  sleep(1000)
-  if (currentRunning != commonFunctions.myCurrentPackage()) {
-    logFloaty.pushLog('未返回原应用，直接打开 '+ currentRunning)
-    app.launch(currentRunning);
-    sleep(3000)
-  }
-
-  return backToTaskUI()
-}
-
-function doCommonTask(titleText, entryBtn, timeout, needScroll) {
-  if (!commonFunctions.checkAppInstalledByName(titleText)) {
-    logFloaty.pushLog('未安装应用，跳过执行：'+titleText)
-    return false
-  }
-  
-  if (!entryBtn) {
-    logFloaty.pushLog('无入口按钮，跳过执行：'+titleText)
-    return false
-  }
-  titleText = titleText || entryBtn.text()
-  timeout = timeout || 15
-  let taskType = 'browse'
-
-  currentRunning = commonFunctions.myCurrentPackage()
-  debugInfo('当前包名：'+currentRunning)
-  
-  entryBtn.click()
-  logFloaty.pushLog('等待进入 '+titleText+', 计时：'+timeout+', 滑动：'+needScroll)
-  commonFunctions.waitForAction(10, titleText, function () {
-    let popupConfirmBtn = widgetUtils.widgetGetOne("^允许$", 1000, false, false, (m) =>
-      m.boundsInside(0, config.device_height * 0.2, config.device_width, config.device_height)
-    );
-    if (popupConfirmBtn) {
-      debugInfo("找到了弹窗确认按钮");
-      automator.clickRandom(popupConfirmBtn);
-      sleep(5000)
-      return true
-    }
-    return false
-  });
-
-  if (currentRunning != commonFunctions.myCurrentPackage()) {
-    taskType = 'visitapp'
-    //已进入目标应用，等待加载完成
-    sleep(5000)
-  } else if (isInTaskUI()) {
-    logFloaty.pushLog('进入任务失败：'+titleText)
-    return false
-  }
-
-  //检查是否有验证窗口，有则等待直到消失
-  commonFunctions.waitForTBVerify()
-
-  //根据需要等待一段时间进行浏览
-  if (timeout) {
-    logFloaty.pushLog(titleText+' 等待倒计时结束')
-    let limit = timeout
-    while (limit-- > 0) {
-      //检查是否有弹窗
-      let popupCancelBtn = widgetUtils.widgetGetOne("^取消|忽略|关闭|拒绝$", 1000, false, false, m => m.boundsInside(0,  config.device_height * 0.2, config.device_width, config.device_height))
-      if (popupCancelBtn) {
-        debugInfo('找到了弹窗取消按钮')
-        automator.clickRandom(popupCancelBtn)
-      }
-
-      logFloaty.replaceLastLog(titleText+' 等待倒计时结束 剩余：' + limit + 's')
-      if (limit % 2 == 0 && needScroll) {
-        automator.scrollUpAndDown()
-        sleep(100)
-      } else {
-        sleep(1000)
-      }
-    }
-  } else {
-    sleep(3000)
-    logFloaty.pushLog('啥也不用干 直接返回')
-  }
-  if (taskType == 'visitapp') {
-    commonFunctions.minimize()
-    sleep(1000)
-    if (currentRunning != commonFunctions.myCurrentPackage()) {
-      logFloaty.pushLog('未返回原应用，直接打开 '+ currentRunning)
-      app.launch(currentRunning);
-      sleep(3000)
-    }
-  }
-
-  automator.back()
-  sleep(1000)
-  return true
-}
-
-function doSpecialTask(action,titleObj,entryBtn) {
-  if (!titleObj||!entryBtn) {
-    return false
-  }
-  switch(action) {
-    case 'answerQuestion':
-      return answerQuestion(titleObj,entryBtn)
-    default:
-      return false
-  }
-}
-
 function scrollUpTop () {
   let limit = 5
   do {
@@ -1014,9 +816,16 @@ function scrollUpTop () {
 function doTaskByText (force) {
   logFloaty.pushLog('执行每日任务')
 
-  let hasTask = false
-  let limit = 3
+  let taskContext = new Object()
+  taskContext.startApp = function (projectCode) {
+    startApp()
+  }
+  taskContext.openTaskWindow = openTaskWindow
+  taskContext.isInProjectUI = isInProjectUI
+  taskContext.isInTaskUI = isInTaskUI
+  taskContext.answerQuestion = answerQuestion
 
+  let limit = 3
   while (limit-- > 0) {
     automator.randomScrollDown(null,null,config.device_height*0.35,config.device_height*0.40)
     sleep(1000)
@@ -1052,40 +861,13 @@ function doTaskByText (force) {
       {taskType:'app',titleRegex:'.*去快手.*',timeout:10,needScroll:false},
       {taskType:'app',titleRegex:'.*去饿了么.*',timeout:10,needScroll:false},
       {taskType:'app',titleRegex:'.*去淘宝.*',timeout:15,needScroll:true},
+      {taskType:'app',titleRegex:'.*抖音极速版.*',timeout:10,needScroll:false},
     ]},
   ]
 
-  do {
-    hasTask = false
-    for (let i = 0; i < taskInfos.length; i++) {
-      let taskInfo = taskInfos[i]
-      let btns = widgetUtils.widgetGetAll(taskInfo.btnRegex, 3000)
-      if (btns && btns.length > 0) {
-        btns.forEach(btn => {
-          let titleObj = commonFunctions.getTaskTitleObj(btn)
-          if (titleObj) {
-            let titleText = titleObj.text()
-            logFloaty.pushLog('发现任务：'+titleText)
-            for (let j = 0; j < taskInfo.tasks.length; j++) {
-              let task = taskInfo.tasks[j]
-              if (titleText.match(task.titleRegex)) {
-                logFloaty.pushLog('开始执行任务：'+titleText)
-                if (task.taskType == 'browse') {
-                  hasTask = doCommonTask(titleText, btn, task.timeout, task.needScroll) || hasTask
-                } else if (task.taskType == 'app') {
-                  hasTask = doCommonTask(titleText, btn, task.timeout, task.needScroll) || hasTask
-                } else {
-                  hasTask = doSpecialTask(task.taskType, titleObj, btn) || hasTask
-                }
-                backToTaskUI()
-                break
-              }
-            }
-          }
-        })
-      }
-    }
-  } while (hasTask)
+  taskUtil.initProject(taskContext,'MiracleOcean')
+  taskUtil.doTasks(taskInfos)
+
   scrollUpTop()
 }
 
